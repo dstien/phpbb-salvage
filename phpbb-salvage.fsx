@@ -25,6 +25,7 @@ type User = {
     //Interests  : string option
     XboxTag    : string option
     AIM        : string option
+    YM         : string option
     MSN        : string option
     ICQ        : int option
     Signature  : string option
@@ -277,10 +278,19 @@ module PostParser =
                 match xblMatch.Success with
                 | true -> Some xblMatch.Groups.[1].Value
                 | false -> None
-            // TODO
-            AIM = None
+            AIM =
+                match userLinks.CssSelect("a[href^='aim:']") with
+                | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"screenname=(.+)&").Groups.[1].Value.Replace('+', ' '))
+                | [] -> None
+            YM =
+                match userLinks.CssSelect("a[href^='http://edit.yahoo.com/']") with
+                | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"target=(.+)&").Groups.[1].Value)
+                | [] -> None
             MSN = None
-            ICQ = None
+            ICQ =
+                match userLinks.CssSelect("a[href^='http://wwp.icq.com/']") with
+                | a::_ -> Some (Int32.Parse(Regex.Match(a.AttributeValue("href"), @"\?to=(\d+)$").Groups.[1].Value))
+                | [] -> None
             Signature = signature
         }
 
