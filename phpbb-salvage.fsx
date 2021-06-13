@@ -31,12 +31,19 @@ type User = {
     //ScrapeDate : DateTime
 }
 
+type Edited = {
+    User  : string
+    Count : int
+    Last  : DateTime
+}
+
 type Post = {
     Id        : int
     Timestamp : DateTime
     User      : User
     Topic     : string
     Content   : string
+    Edited    : Edited option
 }
 
 type Forum = {
@@ -216,9 +223,23 @@ module PostParser =
             let fulltext = bbtext(translated)
             splitSignature fulltext
 
+    // Parse details about post edits from the end of the post body.
+    let ParseEditDetails (doc : HtmlNode) =
+        let str = doc.CssSelect("span[class=gensmall]").Head.InnerText().Trim()
+        let matches = Regex.Match(str, @"Last edited by (\w+) on (\d+ \w{3} \d{4} \d{2}:\d{2} \w{2}); edited (\d+) time")
+        if matches.Success then
+            Some {
+                User  = matches.Groups.[1].Value
+                Count = Int32.Parse(matches.Groups.[3].Value)
+                Last  = DateTime.Parse(matches.Groups.[2].Value)
+            }
+        else
+            None
+
     let Parse (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) =
         let postDetails = userDetails.CssSelect("span[class=postdetails]").Head.InnerText()
-        let content, signature = Body.Parse(postBody.CssSelect("td[colspan=2]").[1])
+        let postBodyContent = postBody.CssSelect("td[colspan=2]").[1]
+        let content, signature = Body.Parse(postBodyContent)
 
         let user = {
             Id = userLinks.CssSelect("a[href^='profile.php']").Head.AttributeValue("href")
@@ -267,6 +288,7 @@ module PostParser =
             User = user
             Topic = postBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
             Content = content
+            Edited = ParseEditDetails postBodyContent
         }
 
         post
@@ -310,7 +332,6 @@ let parseTopic (filename : string) =
     printfn "Topic %d, %d posts" topic.Id userLinks.Length
 
     for i in [0..userDetails.Length-1] do
-        printfn "Parsing post number %i" i
         let post = PostParser.Parse userDetails.[i] userLinks.[i] postTime.[i] (postBody.[i])
 
         if i = 0 then
