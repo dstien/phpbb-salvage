@@ -72,14 +72,17 @@ type Topic = {
 }
 
 module Util =
+    // Read file into HtmlDocument with timestamp.
     let ReadFile (filename: string) =
+        let timestamp = IO.File.GetCreationTime(filename)
+
         // Read entire file and remove all newlines. phpbb have inserted <br/> for every newline in post bodies which FSharp.Data substitutes back to newline.
         let src = IO.File.ReadAllText(filename).Replace("\n", "")
         let doc = HtmlDocument.Load(new IO.StringReader(src))
         printfn "--------------------"
-        printfn "Parsed %s\n" filename
-        // TODO: Get timestamp from file
-        doc
+        printfn "Parsed %s (%s)\n" filename (timestamp.ToString())
+
+        (doc, timestamp)
 
 module PostParser =
     module Body =
@@ -342,7 +345,7 @@ module TopicParser =
             None
 
     let Parse (filename : string) =
-        let doc = Util.ReadFile filename
+        let doc, _ = Util.ReadFile filename
 
         let forum =
             let l = doc.CssSelect("head > link[rel=up]").Head
