@@ -68,8 +68,18 @@ type Topic = {
     Forum : Forum
     Id    : int
     Title : string
-    //Poll   : Poll option // viewtopic.php?t=7119
+    Poll  : Poll option
 }
+
+module Util =
+    let ReadFile (filename: string) =
+        // Read entire file and remove all newlines. phpbb have inserted <br/> for every newline in post bodies which FSharp.Data substitutes back to newline.
+        let src = IO.File.ReadAllText(filename).Replace("\n", "")
+        let doc = HtmlDocument.Load(new IO.StringReader(src))
+        printfn "--------------------"
+        printfn "Parsed %s\n" filename
+        // TODO: Get timestamp from file
+        doc
 
 module PostParser =
     module Body =
@@ -309,48 +319,62 @@ module PostParser =
 
         post
 
-let readFile (filename: string) =
-    // Read entire file and remove all newlines. phpbb have inserted <br/> for every newline in post bodies which FSharp.Data substitutes back to newline.
-    let src = IO.File.ReadAllText(filename).Replace("\n", "")
-    let doc = HtmlDocument.Load(new IO.StringReader(src))
-    printfn "--------------------"
-    printfn "Parsed %s\n" filename
-    // TODO: Get timestamp from file
-    doc
+module TopicParser =
+    // Parse poll question, options and results.
+    let parsePoll (doc : HtmlDocument) =
+        let table = doc.CssSelect("table.forumline > tr > td[class=row2] > table[align=center]")
+        if not table.IsEmpty then
+            let header = table.Head.CssSelect("tr > td[colspan=4] > span[class=gen] > b")
+            let options = table.Head.CssSelect("tr > td[align=center] > table > tr")
+            Some {
+                Question = header.Head.InnerText()
+                Options =
+                    options
+                    |> List.map (fun row ->
+                            {
+                                Text = row.CssSelect("td > span[class=gen]").Head.InnerText()
+                                Votes = Int32.Parse(Regex.Match(row.CssSelect("td[align=center] > span[class=gen]").Head.InnerText(), @"^\[ (\d+) \]$").Groups.[1].Value)
+                            }
+                        )
+                Votes = Int32.Parse(Regex.Match(header.[1].InnerText(), @"^Total Votes : (\d+)$").Groups.[1].Value)
+            }
+        else
+            None
 
-let parseTopic (filename : string) =
-    let doc = readFile filename
+    let Parse (filename : string) =
+        let doc = Util.ReadFile filename
 
-    let forum =
-        let l = doc.CssSelect("head > link[rel=up]").Head
-        {
-            Id = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
-            Name = l.AttributeValue("title")
-        }
+        let forum =
+            let l = doc.CssSelect("head > link[rel=up]").Head
+            {
+                Id = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
+                Name = l.AttributeValue("title")
+            }
 
-    let topic =
-        let t = doc.CssSelect("a.cattitlewhite").[2]
-        {
-            Forum = forum
-            Id = t.AttributeValue("href")
-                .Split("viewtopic.php?t=").[1]
-                .Split("&").[0]
-                |> int
-            Title = t.InnerText()
-        }
+        let topic =
+            let t = doc.CssSelect("a.cattitlewhite").[2]
+            {
+                Forum = forum
+                Id = t.AttributeValue("href")
+                    .Split("viewtopic.php?t=").[1]
+                    .Split("&").[0]
+                    |> int
+                Title = t.InnerText()
+                Poll = parsePoll doc
+            }
 
-    printf "Topic = %A\n" topic
+        printf "Topic = %A\n" topic
 
-    let userDetails = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
-    let postBody = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
-    let postTime = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
-    let userLinks = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
-    printfn "Topic %d, %d posts" topic.Id userLinks.Length
+        let userDetails = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
+        let postBody    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
+        let postTime    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
+        let userLinks   = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
+        printfn "Topic %d, %d posts" topic.Id userLinks.Length
 
-    for i in [0..userDetails.Length-1] do
-        let post = PostParser.Parse userDetails.[i] userLinks.[i] postTime.[i] (postBody.[i])
+        for i in [0..userDetails.Length-1] do
+            let post = PostParser.Parse userDetails.[i] userLinks.[i] postTime.[i] (postBody.[i])
 
-        if i = 0 then
-            printfn "%A" post
+            if i = 0 then
+                printfn "%A" post
 
-    topic
+        topic
