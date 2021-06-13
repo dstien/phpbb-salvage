@@ -23,7 +23,7 @@ type User = {
     //Email      : string option
     //Occupation : string option
     //Interests  : string option
-    //XboxTag    : string option
+    XboxTag    : string option
     AIM        : string option
     MSN        : string option
     ICQ        : int option
@@ -271,6 +271,12 @@ module PostParser =
                 match userLinks.CssSelect("a[target=_userwww]") with
                 | a::_ -> Some (a.AttributeValue("href"))
                 | [] -> None
+            XboxTag =
+                let xblDetails = userDetails.CssSelect("div[class=postdetails]").Head.InnerText()
+                let xblMatch = Regex.Match(xblDetails, @"^XboxLiveGamertag:\n(.+)$")
+                match xblMatch.Success with
+                | true -> Some xblMatch.Groups.[1].Value
+                | false -> None
             // TODO
             AIM = None
             MSN = None
