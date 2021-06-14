@@ -48,9 +48,10 @@ type Post = {
 }
 
 type Forum = {
-    Id   : int
-    Name : string
-    //Description : string
+    Id          : int
+    Name        : string
+    Description : string
+    Order       : int
 }
 
 type PollOption = {
@@ -352,6 +353,8 @@ module TopicParser =
             {
                 Id = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
                 Name = l.AttributeValue("title")
+                Description = ""
+                Order = -1
             }
 
         let topic =
@@ -381,3 +384,21 @@ module TopicParser =
                 printfn "%A" post
 
         topic
+
+module IndexParser =
+    let Parse (filename : string) =
+        let doc, _ = Util.ReadFile filename
+
+        let forums =
+            doc.CssSelect("table.forumline > tr > td.row1[width='100%']")
+            |> List.mapi(fun i row ->
+                    let forumLink = row.CssSelect("a.forumlink").Head
+                    {
+                        Id = Int32.Parse(Regex.Match(forumLink.AttributeValue("href"), @"\?f=(\d+)").Groups.[1].Value)
+                        Name = forumLink.InnerText()
+                        Description = row.CssSelect("span.genmed").Head.InnerText().Trim()
+                        Order = i
+                    }
+                )
+
+        printfn "%A" forums
