@@ -17,6 +17,7 @@ type User = {
     CustomRank : string
     JoinDate   : DateTime
     PostCount  : int
+    CanEmail   : bool
     Avatar     : string option
     Location   : string option
     Homepage   : string option
@@ -114,6 +115,14 @@ module UserParser =
 
     let joined (doc : HtmlDocument) = DateTime.Parse(findField doc "Joined")
     let postCount (doc : HtmlDocument) = Int32.Parse((findField doc "Total posts").Split(' ').[0])
+    let CanEmail (node : HtmlNode) =
+        match node.CssSelect("a[href^='profile.php?mode=email']") with
+        | _::_ -> true
+        | [] -> false
+    let Homepage (node : HtmlNode) =
+        match node.CssSelect("a[target=_userwww]") with
+        | a::_ -> Some (a.AttributeValue("href"))
+        | [] -> None
     let AIM (node : HtmlNode) =
         match node.CssSelect("a[href^='aim:']") with
         | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"screenname=(.+)&").Groups.[1].Value.Replace('+', ' '))
@@ -137,6 +146,7 @@ module UserParser =
             CustomRank = customRank doc
             JoinDate   = joined doc
             PostCount  = postCount doc
+            CanEmail   = CanEmail (findRow doc "E-mail address")
             Avatar     = avatar doc
             Location   = findOptionalField doc "Location"
             Homepage   = findOptionalField doc "Website"
@@ -153,6 +163,49 @@ module UserParser =
         printfn "%A" user
 
         user
+
+module MemberlistParser =
+    let Parse (filename : string) =
+        let doc, _ = Util.ReadFile filename
+
+        let topics =
+            doc.CssSelect("form > table.forumline > tr").Tail
+            |> List.filter(fun row -> not (row.CssSelect("td[class^='row'] a[href^='profile.php']").IsEmpty))
+            |> List.map(fun row ->
+                let cols = row.CssSelect("td")
+                let user = cols.[1].CssSelect("a[href^='profile.php']").Head
+                //let flags = row.CssSelect("span.topictitle > b")
+                //let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
+                //printfn "%A" (cols.[2])
+                {
+                    Id = user.AttributeValue("href")
+                            .Split("profile.php?mode=viewprofile&u=").[1]
+                            .Split("&").[0]
+                            |> int
+                    Name = user.InnerText()
+                    Rank       = "User"
+                    CustomRank = ""
+                    JoinDate   = DateTime.Parse(cols.[5].InnerText())
+                    PostCount  = Int32.Parse(cols.[2].InnerText())
+                    CanEmail   = UserParser.CanEmail cols.[3]
+                    Avatar     = None
+                    Location   =
+                        match cols.[4].InnerText().Trim() with
+                        | "" -> None
+                        | str -> Some str
+                    Homepage   = UserParser.Homepage cols.[7]
+                    Occupation = None
+                    Interests  = None
+                    XboxTag    = None
+                    AIM        = None
+                    YM         = None
+                    MSN        = None
+                    ICQ        = None
+                    Signature  = None
+                }
+            )
+
+        printfn "%A" topics
 
 module PostParser =
     module Body =
@@ -346,6 +399,7 @@ module PostParser =
             PostCount =
                 Regex.Match(postDetails, @"Posts: (\d+)").Groups.[1].Value
                 |> int
+            CanEmail = UserParser.CanEmail userLinks
             Location =
                 let locationMatch = Regex.Match(postDetails, @"Location: (.*)\n")
                 match locationMatch.Success with
@@ -353,10 +407,7 @@ module PostParser =
                 | false -> None
             Occupation = None
             Interests = None
-            Homepage =
-                match userLinks.CssSelect("a[target=_userwww]") with
-                | a::_ -> Some (a.AttributeValue("href"))
-                | [] -> None
+            Homepage = UserParser.Homepage userLinks
             XboxTag =
                 let xblDetails = userDetails.CssSelect("div[class=postdetails]").Head.InnerText()
                 let xblMatch = Regex.Match(xblDetails, @"^XboxLiveGamertag:\n(.+)$")
