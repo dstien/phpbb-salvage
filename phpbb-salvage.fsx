@@ -65,10 +65,14 @@ type Poll = {
 }
 
 type Topic = {
-    Forum : Forum
-    Id    : int
-    Title : string
-    Poll  : Poll option
+    Forum        : Forum
+    Id           : int
+    Title        : string
+    Announcement : bool
+    Sticky       : bool
+    Poll         : Poll option
+    Replies      : int
+    Views        : int
 }
 
 module Util =
@@ -424,7 +428,11 @@ module TopicParser =
                     .Split("&").[0]
                     |> int
                 Title = t.InnerText()
+                Announcement = false
+                Sticky = false
                 Poll = parsePoll doc
+                Replies = 0
+                Views = 0
             }
 
         printf "Topic = %A\n" topic
@@ -442,6 +450,47 @@ module TopicParser =
                 printfn "%A" post
 
         topic
+
+module ForumParser =
+    let Parse (filename : string) =
+        let doc, _ = Util.ReadFile filename
+
+        let forum =
+            let l = doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.cattitlewhite > a.cattitlewhite[href^='viewforum.php']").Head
+            {
+                Id = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
+                Name = l.InnerText()
+                Description = ""
+                Order = -1
+            }
+
+        let topics =
+            doc.CssSelect("form > table.forumline > tr").Tail
+            |> List.filter(fun row -> not (row.CssSelect("td.row1 a[href^='viewtopic.php']").IsEmpty))
+            |> List.map(fun row ->
+                let title = row.CssSelect("a.topictitle").Head
+                let flags = row.CssSelect("span.topictitle > b")
+                let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
+
+                {
+                    Forum = forum
+                    Id = title.AttributeValue("href")
+                            .Split("viewtopic.php?t=").[1]
+                            .Split("&").[0]
+                            |> int
+                    Title = title.InnerText()
+                    Announcement = hasFlag "Announcement"
+                    Sticky = hasFlag "Sticky"
+                    Poll =
+                        match (hasFlag "Poll") with
+                        | true -> Some { Question = ""; Options = []; Votes = 0 }
+                        | false -> None
+                    Replies = Int32.Parse(row.CssSelect("td.row2 > span.viewforumdetails").Head.InnerText())
+                    Views = Int32.Parse(row.CssSelect("td.row3Right > span.viewforumdetails").Head.InnerText())
+                }
+            )
+
+        printfn "%A" topics
 
 module IndexParser =
     let Parse (filename : string) =
