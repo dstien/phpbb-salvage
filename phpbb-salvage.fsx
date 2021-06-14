@@ -20,9 +20,8 @@ type User = {
     Avatar     : string option
     Location   : string option
     Homepage   : string option
-    //Email      : string option
-    //Occupation : string option
-    //Interests  : string option
+    Occupation : string option
+    Interests  : string option
     XboxTag    : string option
     AIM        : string option
     YM         : string option
@@ -84,6 +83,72 @@ module Util =
         printfn "Parsed %s (%s)\n" filename (timestamp.ToString())
 
         (doc, timestamp)
+
+module UserParser =
+    let idFromPrivMsgLink (doc : HtmlDocument) = Int32.Parse(Regex.Match(doc.CssSelect("a[href^='privmsg']").Head.AttributeValue("href"), @"&u=(\d+)").Groups.[1].Value)
+    let nameFromAuthorSearch (doc : HtmlDocument) = Regex.Match(doc.CssSelect("a[href^='search\.php\?search_author']").Head.AttributeValue("href"), @"author=(.+)").Groups.[1].Value
+    let customRank (doc : HtmlDocument) = doc.CssSelect("span.postdetails").Head.InnerText().Trim()
+
+    let avatar (doc : HtmlDocument) =
+        match doc.CssSelect("table.forumline > tr > td.row1 > img") with
+        | img::_ -> Some (img.AttributeValue("src"))
+        | [] -> None
+
+    let findRow (doc : HtmlDocument) name =
+        (
+            doc.CssSelect("table.forumline > tr > td.row1 > table > tr")
+            |> List.filter (fun row -> row.InnerText().StartsWith(name + ":"))
+        ).Head
+
+    let findField (doc : HtmlDocument) name =
+        (findRow doc name).CssSelect("td span.gen").[1].InnerText().Trim()
+
+    let findOptionalField (doc : HtmlDocument) name =
+        match findField doc name with
+        | "" -> None
+        | str -> Some str
+
+    let joined (doc : HtmlDocument) = DateTime.Parse(findField doc "Joined")
+    let postCount (doc : HtmlDocument) = Int32.Parse((findField doc "Total posts").Split(' ').[0])
+    let AIM (node : HtmlNode) =
+        match node.CssSelect("a[href^='aim:']") with
+        | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"screenname=(.+)&").Groups.[1].Value.Replace('+', ' '))
+        | [] -> None
+    let YM (node : HtmlNode) =
+        match node.CssSelect("a[href^='http://edit.yahoo.com/']") with
+        | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"target=(.+)&").Groups.[1].Value)
+        | [] -> None
+    let ICQ (node : HtmlNode) =
+        match node.CssSelect("a[href^='http://wwp.icq.com/']") with
+        | a::_ -> Some (Int32.Parse(Regex.Match(a.AttributeValue("href"), @"\?to=(\d+)$").Groups.[1].Value))
+        | [] -> None
+
+    let Parse (filename : string) =
+        let doc, _ = Util.ReadFile filename
+
+        let user = {
+            Id         = idFromPrivMsgLink doc
+            Name       = nameFromAuthorSearch doc
+            Rank       = "User"
+            CustomRank = customRank doc
+            JoinDate   = joined doc
+            PostCount  = postCount doc
+            Avatar     = avatar doc
+            Location   = findOptionalField doc "Location"
+            Homepage   = findOptionalField doc "Website"
+            Occupation = findOptionalField doc "Occupation"
+            Interests  = findOptionalField doc "Interests"
+            XboxTag    = findOptionalField doc "XboxLiveGamertag"
+            AIM        = AIM (findRow doc "AIM Address")
+            YM         = YM (findRow doc "Yahoo Messenger")
+            MSN        = findOptionalField doc "MSN Messenger"
+            ICQ        = ICQ (findRow doc "ICQ Number")
+            Signature  = None
+        }
+
+        printfn "%A" user
+
+        user
 
 module PostParser =
     module Body =
@@ -282,6 +347,8 @@ module PostParser =
                 match locationMatch.Success with
                 | true -> Some locationMatch.Groups.[1].Value
                 | false -> None
+            Occupation = None
+            Interests = None
             Homepage =
                 match userLinks.CssSelect("a[target=_userwww]") with
                 | a::_ -> Some (a.AttributeValue("href"))
@@ -292,19 +359,10 @@ module PostParser =
                 match xblMatch.Success with
                 | true -> Some xblMatch.Groups.[1].Value
                 | false -> None
-            AIM =
-                match userLinks.CssSelect("a[href^='aim:']") with
-                | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"screenname=(.+)&").Groups.[1].Value.Replace('+', ' '))
-                | [] -> None
-            YM =
-                match userLinks.CssSelect("a[href^='http://edit.yahoo.com/']") with
-                | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"target=(.+)&").Groups.[1].Value)
-                | [] -> None
+            AIM = UserParser.AIM userLinks
+            YM = UserParser.YM userLinks
             MSN = None
-            ICQ =
-                match userLinks.CssSelect("a[href^='http://wwp.icq.com/']") with
-                | a::_ -> Some (Int32.Parse(Regex.Match(a.AttributeValue("href"), @"\?to=(\d+)$").Groups.[1].Value))
-                | [] -> None
+            ICQ = UserParser.ICQ userLinks
             Signature = signature
         }
 
