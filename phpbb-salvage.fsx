@@ -29,7 +29,6 @@ type User = {
     MSN        : string option
     ICQ        : int option
     Signature  : string option
-    //ScrapeDate : DateTime
 }
 
 type Edited = {
@@ -41,21 +40,15 @@ type Edited = {
 type Post = {
     Id        : int
     Timestamp : DateTime
-    User      : User
-    Topic     : string
+    UserId    : int
+    TopicId   : int
+    Title     : string
     Content   : string
     Edited    : Edited option
 }
 
-type Forum = {
-    Id          : int
-    Name        : string
-    Description : string
-    Order       : int
-}
-
 type PollOption = {
-    Text : string
+    Text  : string
     Votes : int
 }
 
@@ -66,14 +59,22 @@ type Poll = {
 }
 
 type Topic = {
-    Forum        : Forum
     Id           : int
+    ForumId      : int
+    UserId       : int
     Title        : string
     Announcement : bool
     Sticky       : bool
     Poll         : Poll option
     Replies      : int
     Views        : int
+}
+
+type Forum = {
+    Id          : int
+    Name        : string
+    Description : string
+    Order       : int
 }
 
 module Util =
@@ -84,10 +85,50 @@ module Util =
         // Read entire file and remove all newlines. phpbb have inserted <br/> for every newline in post bodies which FSharp.Data substitutes back to newline.
         let src = IO.File.ReadAllText(filename).Replace("\n", "")
         let doc = HtmlDocument.Load(new IO.StringReader(src))
-        printfn "--------------------"
-        printfn "Parsed %s (%s)\n" filename (timestamp.ToString())
+
+        printfn "Read %s (%s)\n" filename (timestamp.ToString())
 
         (doc, timestamp)
+
+module Users =
+    let internal dict = new Collections.Generic.SortedDictionary<int, User>()
+
+    let Set (user : User) =
+        printfn "Setting user %i '%s'" user.Id user.Name
+        dict.[user.Id] <- user
+
+    let Print () =
+        printfn "Users = %A" dict
+
+module Posts =
+    let internal dict = new Collections.Generic.SortedDictionary<int, Post>()
+
+    let Set (post : Post) =
+        printfn "Setting post %i in topic %i by user %i" post.Id post.UserId post.UserId
+        dict.[post.Id] <- post
+
+    let Print () =
+        printfn "Posts = %A" dict
+
+module Topics =
+    let internal dict = new Collections.Generic.SortedDictionary<int, Topic>()
+
+    let Set (topic : Topic) =
+        printfn "Setting topic %i '%s'" topic.Id topic.Title
+        dict.[topic.Id] <- topic
+
+    let Print () =
+        printfn "Topics = %A" dict
+
+module Forums =
+    let internal dict = new Collections.Generic.SortedDictionary<int, Forum>()
+
+    let Set (forum : Forum) =
+        printfn "Setting forums %i '%s'" forum.Id forum.Name
+        dict.[forum.Id] <- forum
+
+    let Print () =
+        printfn "Forums = %A" dict
 
 module UserParser =
     let idFromPrivMsgLink (doc : HtmlDocument) = Int32.Parse(Regex.Match(doc.CssSelect("a[href^='privmsg']").Head.AttributeValue("href"), @"&u=(\d+)").Groups.[1].Value)
@@ -139,50 +180,46 @@ module UserParser =
     let Parse (filename : string) =
         let doc, _ = Util.ReadFile filename
 
-        let user = {
-            Id         = idFromPrivMsgLink doc
-            Name       = nameFromAuthorSearch doc
-            Rank       = "User"
-            CustomRank = customRank doc
-            JoinDate   = joined doc
-            PostCount  = postCount doc
-            CanEmail   = CanEmail (findRow doc "E-mail address")
-            Avatar     = avatar doc
-            Location   = findOptionalField doc "Location"
-            Homepage   = findOptionalField doc "Website"
-            Occupation = findOptionalField doc "Occupation"
-            Interests  = findOptionalField doc "Interests"
-            XboxTag    = findOptionalField doc "XboxLiveGamertag"
-            AIM        = AIM (findRow doc "AIM Address")
-            YM         = YM (findRow doc "Yahoo Messenger")
-            MSN        = findOptionalField doc "MSN Messenger"
-            ICQ        = ICQ (findRow doc "ICQ Number")
-            Signature  = None
-        }
-
-        printfn "%A" user
-
-        user
+        Users.Set
+            {
+                Id         = idFromPrivMsgLink doc
+                Name       = nameFromAuthorSearch doc
+                Rank       = "User"
+                CustomRank = customRank doc
+                JoinDate   = joined doc
+                PostCount  = postCount doc
+                CanEmail   = CanEmail (findRow doc "E-mail address")
+                Avatar     = avatar doc
+                Location   = findOptionalField doc "Location"
+                Homepage   = findOptionalField doc "Website"
+                Occupation = findOptionalField doc "Occupation"
+                Interests  = findOptionalField doc "Interests"
+                XboxTag    = findOptionalField doc "XboxLiveGamertag"
+                AIM        = AIM (findRow doc "AIM Address")
+                YM         = YM (findRow doc "Yahoo Messenger")
+                MSN        = findOptionalField doc "MSN Messenger"
+                ICQ        = ICQ (findRow doc "ICQ Number")
+                Signature  = None
+            }
 
 module MemberlistParser =
     let Parse (filename : string) =
         let doc, _ = Util.ReadFile filename
 
-        let topics =
-            doc.CssSelect("form > table.forumline > tr").Tail
-            |> List.filter(fun row -> not (row.CssSelect("td[class^='row'] a[href^='profile.php']").IsEmpty))
-            |> List.map(fun row ->
-                let cols = row.CssSelect("td")
-                let user = cols.[1].CssSelect("a[href^='profile.php']").Head
-                //let flags = row.CssSelect("span.topictitle > b")
-                //let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
-                //printfn "%A" (cols.[2])
+        doc.CssSelect("form > table.forumline > tr").Tail
+        |> List.filter(fun row -> not (row.CssSelect("td[class^='row'] a[href^='profile.php']").IsEmpty))
+        |> List.iter(fun row ->
+            let cols = row.CssSelect("td")
+            let user = cols.[1].CssSelect("a[href^='profile.php']").Head
+
+            Users.Set
                 {
-                    Id = user.AttributeValue("href")
+                    Id         =
+                        user.AttributeValue("href")
                             .Split("profile.php?mode=viewprofile&u=").[1]
                             .Split("&").[0]
                             |> int
-                    Name = user.InnerText()
+                    Name       = user.InnerText()
                     Rank       = "User"
                     CustomRank = ""
                     JoinDate   = DateTime.Parse(cols.[5].InnerText())
@@ -203,9 +240,7 @@ module MemberlistParser =
                     ICQ        = None
                     Signature  = None
                 }
-            )
-
-        printfn "%A" topics
+        )
 
 module PostParser =
     module Body =
@@ -373,7 +408,7 @@ module PostParser =
         else
             None
 
-    let Parse (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) =
+    let Parse (topicId : int) (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) =
         let postDetails = userDetails.CssSelect("span[class=postdetails]").Head.InnerText()
         let postBodyContent = postBody.CssSelect("td[colspan=2]").[1]
         let content, signature = Body.Parse(postBodyContent)
@@ -421,20 +456,22 @@ module PostParser =
             Signature = signature
         }
 
-        let post = {
-            Id =
-                userDetails.CssSelect("a").Head.AttributeValue("name")
-                |> int
-            Timestamp =
-                DateTime.Parse
-                    (postTime.CssSelect("span[class=postdetails]").Head.InnerText())
-            User = user
-            Topic = postBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
-            Content = content
-            Edited = ParseEditDetails postBodyContent
-        }
+        Users.Set user
 
-        post
+        Posts.Set
+            {
+                Id        =
+                    userDetails.CssSelect("a").Head.AttributeValue("name")
+                    |> int
+                Timestamp =
+                    DateTime.Parse
+                        (postTime.CssSelect("span[class=postdetails]").Head.InnerText())
+                UserId    = user.Id
+                TopicId   = topicId
+                Title     = postBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
+                Content   = content
+                Edited    = ParseEditDetails postBodyContent
+            }
 
 module TopicParser =
     // Parse poll question, options and results.
@@ -464,99 +501,115 @@ module TopicParser =
         let forum =
             let l = doc.CssSelect("head > link[rel=up]").Head
             {
-                Id = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
-                Name = l.AttributeValue("title")
+                Id          = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
+                Name        = l.AttributeValue("title")
                 Description = ""
-                Order = -1
+                Order       = -1
             }
+
+        Forums.Set forum
 
         let topic =
             let t = doc.CssSelect("a.cattitlewhite").[2]
             {
-                Forum = forum
                 Id = t.AttributeValue("href")
                     .Split("viewtopic.php?t=").[1]
                     .Split("&").[0]
                     |> int
-                Title = t.InnerText()
+                ForumId      = forum.Id
+                UserId       = -1
+                Title        = t.InnerText()
                 Announcement = false
-                Sticky = false
-                Poll = parsePoll doc
-                Replies = 0
-                Views = 0
+                Sticky       = false
+                Poll         = parsePoll doc
+                Replies      = 0
+                Views        = 0
             }
 
-        printf "Topic = %A\n" topic
+        Topics.Set topic
 
         let userDetails = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
         let postBody    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
         let postTime    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
         let userLinks   = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
-        printfn "Topic %d, %d posts" topic.Id userLinks.Length
 
         for i in [0..userDetails.Length-1] do
-            let post = PostParser.Parse userDetails.[i] userLinks.[i] postTime.[i] (postBody.[i])
-
-            if i = 0 then
-                printfn "%A" post
-
-        topic
+            PostParser.Parse topic.Id userDetails.[i] userLinks.[i] postTime.[i] (postBody.[i])
+            |> ignore
 
 module ForumParser =
     let Parse (filename : string) =
         let doc, _ = Util.ReadFile filename
 
+        // TODO
+        // Moderators
+
         let forum =
             let l = doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.cattitlewhite > a.cattitlewhite[href^='viewforum.php']").Head
             {
-                Id = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
-                Name = l.InnerText()
+                Id          = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
+                Name        = l.InnerText()
                 Description = ""
-                Order = -1
+                Order       = -1
             }
 
-        let topics =
-            doc.CssSelect("form > table.forumline > tr").Tail
-            |> List.filter(fun row -> not (row.CssSelect("td.row1 a[href^='viewtopic.php']").IsEmpty))
-            |> List.map(fun row ->
-                let title = row.CssSelect("a.topictitle").Head
-                let flags = row.CssSelect("span.topictitle > b")
-                let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
+        Forums.Set forum
 
+        doc.CssSelect("form > table.forumline > tr").Tail
+        |> List.filter(fun row -> not (row.CssSelect("td.row1 a[href^='viewtopic.php']").IsEmpty))
+        |> List.iter(fun row ->
+            let title = row.CssSelect("a.topictitle").Head
+            let flags = row.CssSelect("span.topictitle > b")
+            let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
+
+            // TODO
+            // Author
+            // Last post
+
+            Topics.Set
                 {
-                    Forum = forum
-                    Id = title.AttributeValue("href")
+                    Id =
+                        title.AttributeValue("href")
                             .Split("viewtopic.php?t=").[1]
                             .Split("&").[0]
                             |> int
-                    Title = title.InnerText()
+                    ForumId      = forum.Id
+                    UserId       = -1 // TODO
+                    Title        = title.InnerText()
                     Announcement = hasFlag "Announcement"
-                    Sticky = hasFlag "Sticky"
+                    Sticky       = hasFlag "Sticky"
                     Poll =
                         match (hasFlag "Poll") with
                         | true -> Some { Question = ""; Options = []; Votes = 0 }
                         | false -> None
                     Replies = Int32.Parse(row.CssSelect("td.row2 > span.viewforumdetails").Head.InnerText())
-                    Views = Int32.Parse(row.CssSelect("td.row3Right > span.viewforumdetails").Head.InnerText())
+                    Views   = Int32.Parse(row.CssSelect("td.row3Right > span.viewforumdetails").Head.InnerText())
                 }
-            )
-
-        printfn "%A" topics
+        )
 
 module IndexParser =
     let Parse (filename : string) =
         let doc, _ = Util.ReadFile filename
 
-        let forums =
-            doc.CssSelect("table.forumline > tr > td.row1[width='100%']")
-            |> List.mapi(fun i row ->
-                    let forumLink = row.CssSelect("a.forumlink").Head
-                    {
-                        Id = Int32.Parse(Regex.Match(forumLink.AttributeValue("href"), @"\?f=(\d+)").Groups.[1].Value)
-                        Name = forumLink.InnerText()
-                        Description = row.CssSelect("span.genmed").Head.InnerText().Trim()
-                        Order = i
-                    }
-                )
+        // TODO
+        // Newest user
+        // Last post
+        // Moderators
+        // Topic and post counts?
 
-        printfn "%A" forums
+        doc.CssSelect("table.forumline > tr > td.row1[width='100%']")
+        |> List.iteri(fun i row ->
+                let forumLink = row.CssSelect("a.forumlink").Head
+                Forums.Set
+                    {
+                        Id          = Int32.Parse(Regex.Match(forumLink.AttributeValue("href"), @"\?f=(\d+)").Groups.[1].Value)
+                        Name        = forumLink.InnerText()
+                        Description = row.CssSelect("span.genmed").Head.InnerText().Trim()
+                        Order       = i
+                    }
+            )
+
+Users.Print()
+Forums.Print()
+Topics.Print ()
+Posts.Print ()
