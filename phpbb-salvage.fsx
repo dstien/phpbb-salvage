@@ -104,11 +104,23 @@ type Forum = {
     Id          : int
     Name        : string
     Description : string
+    Moderators  : int list
     Order       : int
     TopicCount  : int
     PostCount   : int
     Sources     : Map<SourceType, DateTime>
-}
+} with
+    static member Stub id name timestamp =
+            {
+                Id          = id
+                Name        = name
+                Description = ""
+                Moderators  = []
+                Order       = -1
+                TopicCount  = -1
+                PostCount   = -1
+                Sources     = Map.empty.Add(SourceType.Topic, timestamp)
+            }
 
 module Util =
     // Read file into HtmlDocument with timestamp.
@@ -169,32 +181,49 @@ module Forums =
                 Id          = old.Id
                 Name        =
                     // All source types contains forum name.
-                    if previousOfAny >= newSourceTime then
-                        old.Name
-                    else
+                    if previousOfAny < newSourceTime then
                         new'.Name
+                    else
+                        old.Name
 
                 Description =
                     // Only index contains forum description.
-                    if previousOfAny >= newSourceTime then
-                        old.Description
-                    else
+                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
                         new'.Description
+                    else
+                        old.Description
+                Moderators  =
+                    // Moderators are listed in index and forum views.
+                    let previous =
+                        old.Sources
+                        |> Map.filter (fun s _ -> [SourceType.Index; SourceType.Forum] |> List.contains s)
+                        |> Map.toList
+                        |> List.map(fun s -> snd s)
+                        |> List.sortDescending
+                        |> List.head
+
+                    if ([SourceType.Index; SourceType.Forum] |> List.contains newSourceType) && previous < newSourceTime then
+                        new'.Moderators
+                    else
+                        old.Moderators
                 Order       =
                     // Only index contains forum order.
-                    match newSourceType with
-                    | SourceType.Index -> new'.Order
-                    | _ -> old.Order
+                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
+                        new'.Order
+                    else
+                        old.Order
                 TopicCount       =
                     // Only index contains topic count.
-                    match newSourceType with
-                    | SourceType.Index -> new'.TopicCount
-                    | _ -> old.TopicCount
+                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
+                        new'.TopicCount
+                    else
+                        old.TopicCount
                 PostCount       =
                     // Only index contains post count.
-                    match newSourceType with
-                    | SourceType.Index -> new'.PostCount
-                    | _ -> old.PostCount
+                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
+                        new'.PostCount
+                    else
+                        old.PostCount
                 Sources     = old.Sources.Add(newSourceType, newSourceTime)
             }
 
@@ -589,15 +618,7 @@ module TopicParser =
 
         let forum =
             let l = doc.CssSelect("head > link[rel=up]").Head
-            {
-                Id          = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
-                Name        = l.AttributeValue("title")
-                Description = ""
-                Order       = -1
-                TopicCount  = -1
-                PostCount   = -1
-                Sources     = Map.empty.Add(SourceType.Topic, timestamp)
-            }
+            Forum.Stub (l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int) (l.AttributeValue("title")) timestamp
 
         Forums.Set forum
 
@@ -633,21 +654,18 @@ module ForumParser =
     let Parse (filename : string) =
         let doc, timestamp = Util.ReadFile filename
 
-        // TODO
-        // Moderators
+        let moderators =
+            doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.gensmallwhite > a[href^='profile.php?mode=viewprofile']")
+            |> List.map (fun m ->
+                let id, name = UserParser.IdAndNameFromProfileLink(m)
+                User.Stub id name "Moderator" timestamp
+            )
+        moderators |> List.iter (fun m -> Users.Set m)
 
         let forum =
             let l = doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.cattitlewhite > a.cattitlewhite[href^='viewforum.php']").Head
-            {
-                Id          = l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int
-                Name        = l.InnerText()
-                Description = ""
-                Order       = -1
-                TopicCount  = -1
-                PostCount   = -1
-                Sources     = Map.empty.Add(SourceType.Forum, timestamp)
-            }
-
+            let f = Forum.Stub (l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int) (l.InnerText()) timestamp
+            { f with Moderators = moderators |> List.map (fun m -> m.Id) }
         Forums.Set forum
 
         doc.CssSelect("form > table.forumline > tr").Tail
@@ -700,12 +718,21 @@ module IndexParser =
                 let lastPosterId, lastPosterName = UserParser.IdAndNameFromProfileLink(row.CssSelect("td.row2").[2].CssSelect("a[href^='profile.php?mode=viewprofile']").Head)
                 Users.Set (User.Stub lastPosterId lastPosterName "User" timestamp)
 
+                let moderators =
+                    row.CssSelect("td.row2").[3].CssSelect("a[href^='profile.php?mode=viewprofile']")
+                    |> List.map (fun m ->
+                        let id, name = UserParser.IdAndNameFromProfileLink(m)
+                        User.Stub id name "Moderator" timestamp
+                    )
+                moderators |> List.iter (fun m -> Users.Set m)
+
                 let forumLink = row.CssSelect("td.row1 > span.forumlink > a.forumlink").Head
                 Forums.Set
                     {
                         Id          = Int32.Parse(Regex.Match(forumLink.AttributeValue("href"), @"\?f=(\d+)").Groups.[1].Value)
                         Name        = forumLink.InnerText()
                         Description = row.CssSelect("td.row1 > span.genmed").Head.InnerText().Trim()
+                        Moderators  = moderators |> List.map (fun m -> m.Id)
                         Order       = i
                         TopicCount  = Int32.Parse(row.CssSelect("td.row2 > span.gensmall").[0].InnerText())
                         PostCount   = Int32.Parse(row.CssSelect("td.row2 > span.gensmall").[1].InnerText())
