@@ -98,6 +98,7 @@ type Topic = {
     Poll         : Poll option
     Replies      : int
     Views        : int
+    Sources      : Map<SourceType, DateTime>
 }
 
 type Forum = {
@@ -139,6 +140,14 @@ module Util =
     let NumericQueryField (link : HtmlNode) (field : string) =
         Int32.Parse(Regex.Match(link.AttributeValue("href"), @"(\?|&)" + field + @"=(\d+)").Groups.[2].Value)
 
+    // Get the previous source by date, regardless of type.
+    let PreviousSourceOfAny (sources : Map<SourceType, DateTime>) =
+        sources
+        |> Map.toList
+        |> List.map (fun s -> snd s)
+        |> List.sortDescending
+        |> List.head
+
 module Users =
     let internal dict = new Collections.Generic.SortedDictionary<int, User>()
 
@@ -162,12 +171,85 @@ module Posts =
 module Topics =
     let internal dict = new Collections.Generic.SortedDictionary<int, Topic>()
 
+    let internal merge (old: Topic) (new' : Topic) =
+        let newSourceType, newSourceTime = new'.Sources |> Map.toList |> List.head
+
+        // Check if already registered from earlier source of same type.
+        let previousOfSame = old.Sources |> Map.tryFind newSourceType |> Option.defaultValue DateTime.MinValue
+        if newSourceTime < previousOfSame then
+            old
+        else
+            let previousOfAny = Util.PreviousSourceOfAny old.Sources
+            {
+                Id           = old.Id
+                ForumId      =
+                    // All source types contains forum id.
+                    if previousOfAny < newSourceTime then
+                        new'.ForumId
+                    else
+                        old.ForumId
+                UserId       =
+                    // Only forum view contains topic author.
+                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
+                        new'.UserId
+                    else
+                        old.UserId
+                Title        =
+                    // All source types contains topic title.
+                    if previousOfAny < newSourceTime then
+                        new'.Title
+                    else
+                        old.Title
+                Announcement =
+                    // Only forum view has announcement flag.
+                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
+                        new'.Announcement
+                    else
+                        old.Announcement
+                Sticky       =
+                    // Only forum view has sticky flag.
+                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
+                        new'.Sticky
+                    else
+                        old.Sticky
+                Poll         =
+                    // Only topic view has full poll details.
+                    if new'.Poll.IsSome && newSourceType = SourceType.Topic && previousOfSame < newSourceTime then
+                        new'.Poll
+                    else
+                        // Forum view has poll flag. Use empty poll if not already set.
+                        if new'.Poll.IsSome && old.Poll.IsNone && previousOfAny < newSourceTime then
+                            new'.Poll
+                        else
+                            old.Poll
+                Replies      =
+                    // Only forum view has reply count.
+                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
+                        new'.Replies
+                    else
+                        old.Replies
+                Views        =
+                    // Only forum view has view count.
+                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
+                        new'.Views
+                    else
+                        old.Views
+                Sources     = old.Sources.Add(newSourceType, newSourceTime)
+            }
+
     let Set (topic : Topic) =
         printfn "Setting topic %i '%s'" topic.Id topic.Title
-        dict.[topic.Id] <- topic
+
+        if dict.ContainsKey(topic.Id) then
+            dict.[topic.Id] <- merge dict.[topic.Id] topic
+        else
+            dict.[topic.Id] <- topic
 
     let Print () =
-        printfn "Topics = %A" dict
+        printfn "Topics ="
+        let mutable em = dict.GetEnumerator()
+        while em.MoveNext() do
+            printfn "%A" em.Current.Value
 
 module Forums =
     let internal dict = new Collections.Generic.SortedDictionary<int, Forum>()
@@ -176,11 +258,11 @@ module Forums =
         let newSourceType, newSourceTime = new'.Sources |> Map.toList |> List.head
 
         // Check if already registered from earlier source of same type.
-        let previousOfSame = old.Sources |> Map.tryFind newSourceType
-        if previousOfSame.IsSome && previousOfSame.Value >= newSourceTime then
+        let previousOfSame = old.Sources |> Map.tryFind newSourceType |> Option.defaultValue DateTime.MinValue
+        if newSourceTime < previousOfSame then
             old
         else
-            let previousOfAny = old.Sources |> Map.toList |> List.map (fun s -> snd s) |> List.sortDescending |> List.head
+            let previousOfAny = Util.PreviousSourceOfAny old.Sources
             {
                 Id          = old.Id
                 Name        =
@@ -192,7 +274,7 @@ module Forums =
 
                 Description =
                     // Only index contains forum description.
-                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
+                    if newSourceType = SourceType.Index && previousOfSame < newSourceTime then
                         new'.Description
                     else
                         old.Description
@@ -204,27 +286,26 @@ module Forums =
                         |> Map.toList
                         |> List.map(fun s -> snd s)
                         |> List.sortDescending
-                        |> List.head
 
-                    if ([SourceType.Index; SourceType.Forum] |> List.contains newSourceType) && previous < newSourceTime then
+                    if ([SourceType.Index; SourceType.Forum] |> List.contains newSourceType) && not previous.IsEmpty && previous.Head < newSourceTime then
                         new'.Moderators
                     else
                         old.Moderators
                 Order       =
                     // Only index contains forum order.
-                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
+                    if newSourceType = SourceType.Index && previousOfSame < newSourceTime then
                         new'.Order
                     else
                         old.Order
                 TopicCount       =
                     // Only index contains topic count.
-                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
+                    if newSourceType = SourceType.Index && previousOfSame < newSourceTime then
                         new'.TopicCount
                     else
                         old.TopicCount
                 PostCount       =
                     // Only index contains post count.
-                    if newSourceType = SourceType.Index && previousOfSame.Value < newSourceTime then
+                    if newSourceType = SourceType.Index && previousOfSame < newSourceTime then
                         new'.PostCount
                     else
                         old.PostCount
@@ -232,7 +313,7 @@ module Forums =
             }
 
     let Set (forum : Forum) =
-        printfn "Setting forums %i '%s'" forum.Id forum.Name
+        printfn "Setting forum %i '%s'" forum.Id forum.Name
 
         if dict.ContainsKey(forum.Id) then
             dict.[forum.Id] <- merge dict.[forum.Id] forum
@@ -639,8 +720,9 @@ module TopicParser =
                 Announcement = false
                 Sticky       = false
                 Poll         = parsePoll doc
-                Replies      = 0
-                Views        = 0
+                Replies      = -1
+                Views        = -1
+                Sources      = Map.empty.Add(SourceType.Topic, timestamp)
             }
 
         Topics.Set topic
@@ -698,12 +780,13 @@ module ForumParser =
                     Title        = title
                     Announcement = hasFlag "Announcement"
                     Sticky       = hasFlag "Sticky"
-                    Poll =
+                    Poll         =
                         match (hasFlag "Poll") with
                         | true -> Some { Question = ""; Options = []; Votes = 0 }
                         | false -> None
-                    Replies = Int32.Parse(row.CssSelect("td.row2 > span.viewforumdetails").Head.InnerText())
-                    Views   = Int32.Parse(row.CssSelect("td.row3Right > span.viewforumdetails").Head.InnerText())
+                    Replies      = Int32.Parse(row.CssSelect("td.row2 > span.viewforumdetails").Head.InnerText())
+                    Views        = Int32.Parse(row.CssSelect("td.row3Right > span.viewforumdetails").Head.InnerText())
+                    Sources      = Map.empty.Add(SourceType.Forum, timestamp)
                 }
         )
 
