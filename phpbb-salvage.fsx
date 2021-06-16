@@ -135,6 +135,10 @@ module Util =
 
         (doc, timestamp)
 
+    // Get a numeric field value from query string.
+    let NumericQueryField (link : HtmlNode) (field : string) =
+        Int32.Parse(Regex.Match(link.AttributeValue("href"), @"(\?|&)" + field + @"=(\d+)").Groups.[2].Value)
+
 module Users =
     let internal dict = new Collections.Generic.SortedDictionary<int, User>()
 
@@ -242,13 +246,13 @@ module Forums =
             printfn "%A" em.Current.Value
 
 module UserParser =
-    let idFromLink (link : HtmlNode) =
-        Int32.Parse(Regex.Match(link.AttributeValue("href"), @"&u=(\d+)").Groups.[1].Value)
+    let IdFromLink (link : HtmlNode) =
+        Util.NumericQueryField link "u"
 
     let IdAndNameFromProfileLink (link : HtmlNode) =
-        idFromLink link, link.InnerText()
+        IdFromLink link, link.InnerText()
 
-    let idFromPrivMsgLink (doc : HtmlDocument) = idFromLink(doc.CssSelect("a[href^='privmsg']").Head)
+    let idFromPrivMsgLink (doc : HtmlDocument) = IdFromLink(doc.CssSelect("a[href^='privmsg']").Head)
     let nameFromAuthorSearch (doc : HtmlDocument) = Regex.Match(doc.CssSelect("a[href^='search\.php\?search_author']").Head.AttributeValue("href"), @"author=(.+)").Groups.[1].Value
     let customRank (doc : HtmlDocument) = doc.CssSelect("span.postdetails").Head.InnerText().Trim()
 
@@ -531,10 +535,7 @@ module PostParser =
         let content, signature = Body.Parse(postBodyContent)
 
         let user = {
-            Id = userLinks.CssSelect("a[href^='profile.php']").Head.AttributeValue("href")
-                .Split("u=").[1]
-                .Split("&").[0]
-                |> int
+            Id   = UserParser.IdFromLink (userLinks.CssSelect("a[href^='profile.php']").Head)
             Name = userDetails.CssSelect("span[class=name] b").Head.InnerText()
             Rank =
                 match userDetails.CssSelect("span[class=postdetails] > img") with
@@ -592,6 +593,12 @@ module PostParser =
             }
 
 module TopicParser =
+    let idFromLink (link : HtmlNode) =
+        Util.NumericQueryField link "t"
+
+    let IdAndTitleFromTopicLink (link : HtmlNode) =
+        idFromLink link, link.InnerText()
+
     // Parse poll question, options and results.
     let parsePoll (doc : HtmlDocument) =
         let table = doc.CssSelect("table.forumline > tr > td[class=row2] > table[align=center]")
@@ -618,20 +625,17 @@ module TopicParser =
 
         let forum =
             let l = doc.CssSelect("head > link[rel=up]").Head
-            Forum.Stub (l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int) (l.AttributeValue("title")) timestamp
+            Forum.Stub (Util.NumericQueryField l "f") (l.AttributeValue("title")) timestamp
 
         Forums.Set forum
 
         let topic =
-            let t = doc.CssSelect("a.cattitlewhite").[2]
+            let id, title = IdAndTitleFromTopicLink(doc.CssSelect("a.cattitlewhite").[2])
             {
-                Id = t.AttributeValue("href")
-                    .Split("viewtopic.php?t=").[1]
-                    .Split("&").[0]
-                    |> int
+                Id           = id
                 ForumId      = forum.Id
                 UserId       = -1
-                Title        = t.InnerText()
+                Title        = title
                 Announcement = false
                 Sticky       = false
                 Poll         = parsePoll doc
@@ -654,6 +658,7 @@ module ForumParser =
     let Parse (filename : string) =
         let doc, timestamp = Util.ReadFile filename
 
+        // Moderators.
         let moderators =
             doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.gensmallwhite > a[href^='profile.php?mode=viewprofile']")
             |> List.map (fun m ->
@@ -662,33 +667,35 @@ module ForumParser =
             )
         moderators |> List.iter (fun m -> Users.Set m)
 
+        // Current forum.
         let forum =
             let l = doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.cattitlewhite > a.cattitlewhite[href^='viewforum.php']").Head
-            let f = Forum.Stub (l.AttributeValue("href").Split("viewforum.php?f=").[1] |> int) (l.InnerText()) timestamp
+            let f = Forum.Stub (Util.NumericQueryField l "f") (l.InnerText()) timestamp
             { f with Moderators = moderators |> List.map (fun m -> m.Id) }
         Forums.Set forum
 
+        // Topic rows in forum table.
         doc.CssSelect("form > table.forumline > tr").Tail
         |> List.filter(fun row -> not (row.CssSelect("td.row1 a[href^='viewtopic.php']").IsEmpty))
         |> List.iter(fun row ->
-            let title = row.CssSelect("a.topictitle").Head
+            let id, title = TopicParser.IdAndTitleFromTopicLink(row.CssSelect("a.topictitle").Head)
             let flags = row.CssSelect("span.topictitle > b")
             let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
 
-            // TODO
-            // Author
-            // Last post
+            // Topic author.
+            let authorId, authorName = UserParser.IdAndNameFromProfileLink(row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']").Head)
+            Users.Set (User.Stub authorId authorName "User" timestamp)
+
+            // Last posting user.
+            let lastPosterId, lastPosterName = UserParser.IdAndNameFromProfileLink(row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']").Head)
+            Users.Set (User.Stub lastPosterId lastPosterName "User" timestamp)
 
             Topics.Set
                 {
-                    Id =
-                        title.AttributeValue("href")
-                            .Split("viewtopic.php?t=").[1]
-                            .Split("&").[0]
-                            |> int
+                    Id           = id
                     ForumId      = forum.Id
-                    UserId       = -1 // TODO
-                    Title        = title.InnerText()
+                    UserId       = authorId
+                    Title        = title
                     Announcement = hasFlag "Announcement"
                     Sticky       = hasFlag "Sticky"
                     Poll =
@@ -704,13 +711,11 @@ module IndexParser =
     let Parse (filename : string) =
         let doc, timestamp = Util.ReadFile filename
 
-        // TODO
-        // Moderators
-
         // Newest registered user.
         let newestId, newestName = UserParser.IdAndNameFromProfileLink(doc.CssSelect("span.gensmallwhite > strong > a[href^='profile.php?mode=viewprofile']").Head)
         Users.Set (User.Stub newestId newestName "User" timestamp)
 
+        // Find forum rows in index page table.
         doc.CssSelect("table.forumline > tr")
         |> List.filter (fun row -> not (row.CssSelect("td.row1[width='100%']").IsEmpty))
         |> List.iteri(fun i row ->
@@ -718,6 +723,7 @@ module IndexParser =
                 let lastPosterId, lastPosterName = UserParser.IdAndNameFromProfileLink(row.CssSelect("td.row2").[2].CssSelect("a[href^='profile.php?mode=viewprofile']").Head)
                 Users.Set (User.Stub lastPosterId lastPosterName "User" timestamp)
 
+                // Moderators.
                 let moderators =
                     row.CssSelect("td.row2").[3].CssSelect("a[href^='profile.php?mode=viewprofile']")
                     |> List.map (fun m ->
@@ -729,7 +735,7 @@ module IndexParser =
                 let forumLink = row.CssSelect("td.row1 > span.forumlink > a.forumlink").Head
                 Forums.Set
                     {
-                        Id          = Int32.Parse(Regex.Match(forumLink.AttributeValue("href"), @"\?f=(\d+)").Groups.[1].Value)
+                        Id          = Util.NumericQueryField forumLink "f"
                         Name        = forumLink.InnerText()
                         Description = row.CssSelect("td.row1 > span.genmed").Head.InnerText().Trim()
                         Moderators  = moderators |> List.map (fun m -> m.Id)
