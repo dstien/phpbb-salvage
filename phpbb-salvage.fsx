@@ -10,6 +10,13 @@ open System.Text.RegularExpressions
 open FSharp.Data
 open FSharp.Data.HtmlActivePatterns
 
+type SourceType =
+    | Index
+    | Forum
+    | Topic
+    | Memberlist
+    | Profile
+
 type User = {
     Id         : int
     Name       : string
@@ -75,6 +82,7 @@ type Forum = {
     Name        : string
     Description : string
     Order       : int
+    Sources     : Map<SourceType, DateTime>
 }
 
 module Util =
@@ -123,12 +131,51 @@ module Topics =
 module Forums =
     let internal dict = new Collections.Generic.SortedDictionary<int, Forum>()
 
+    let internal merge (old: Forum) (new' : Forum) =
+        let newSourceType, newSourceTime = new'.Sources |> Map.toList |> List.head
+
+        // Check if already registered from earlier source of same type.
+        let previousOfSame = old.Sources |> Map.tryFind newSourceType
+        if previousOfSame.IsSome && previousOfSame.Value >= newSourceTime then
+            old
+        else
+            let previousOfAny = old.Sources |> Map.toList |> List.map (fun s -> snd s) |> List.sortDescending |> List.head
+            {
+                Id          = old.Id
+                Name        =
+                    // All source types contains forum name.
+                    if previousOfAny >= newSourceTime then
+                        old.Name
+                    else
+                        new'.Name
+
+                Description =
+                    // Only index contains forum description.
+                    if previousOfAny >= newSourceTime then
+                        old.Description
+                    else
+                        new'.Description
+                Order       =
+                    // Only index contains forum order..
+                    match newSourceType with
+                    | SourceType.Index -> new'.Order
+                    | _ -> old.Order
+                Sources     = old.Sources.Add(newSourceType, newSourceTime)
+            }
+
     let Set (forum : Forum) =
         printfn "Setting forums %i '%s'" forum.Id forum.Name
-        dict.[forum.Id] <- forum
+
+        if dict.ContainsKey(forum.Id) then
+            dict.[forum.Id] <- merge dict.[forum.Id] forum
+        else
+            dict.[forum.Id] <- forum
 
     let Print () =
-        printfn "Forums = %A" dict
+        printfn "Forums ="
+        let mutable em = dict.GetEnumerator()
+        while em.MoveNext() do
+            printfn "%A" em.Current.Value
 
 module UserParser =
     let idFromPrivMsgLink (doc : HtmlDocument) = Int32.Parse(Regex.Match(doc.CssSelect("a[href^='privmsg']").Head.AttributeValue("href"), @"&u=(\d+)").Groups.[1].Value)
@@ -496,7 +543,7 @@ module TopicParser =
             None
 
     let Parse (filename : string) =
-        let doc, _ = Util.ReadFile filename
+        let doc, timestamp = Util.ReadFile filename
 
         let forum =
             let l = doc.CssSelect("head > link[rel=up]").Head
@@ -505,6 +552,7 @@ module TopicParser =
                 Name        = l.AttributeValue("title")
                 Description = ""
                 Order       = -1
+                Sources     = Map.empty.Add(SourceType.Topic, timestamp)
             }
 
         Forums.Set forum
@@ -539,7 +587,7 @@ module TopicParser =
 
 module ForumParser =
     let Parse (filename : string) =
-        let doc, _ = Util.ReadFile filename
+        let doc, timestamp = Util.ReadFile filename
 
         // TODO
         // Moderators
@@ -551,6 +599,7 @@ module ForumParser =
                 Name        = l.InnerText()
                 Description = ""
                 Order       = -1
+                Sources     = Map.empty.Add(SourceType.Forum, timestamp)
             }
 
         Forums.Set forum
@@ -589,7 +638,7 @@ module ForumParser =
 
 module IndexParser =
     let Parse (filename : string) =
-        let doc, _ = Util.ReadFile filename
+        let doc, timestamp = Util.ReadFile filename
 
         // TODO
         // Newest user
@@ -606,6 +655,7 @@ module IndexParser =
                         Name        = forumLink.InnerText()
                         Description = row.CssSelect("span.genmed").Head.InnerText().Trim()
                         Order       = i
+                        Sources     = Map.empty.Add(SourceType.Index, timestamp)
                     }
             )
 
