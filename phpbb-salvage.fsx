@@ -687,15 +687,19 @@ module IndexParser =
         let doc, timestamp = Util.ReadFile filename
 
         // TODO
-        // Last post
         // Moderators
 
+        // Newest registered user.
         let newestId, newestName = UserParser.IdAndNameFromProfileLink(doc.CssSelect("span.gensmallwhite > strong > a[href^='profile.php?mode=viewprofile']").Head)
         Users.Set (User.Stub newestId newestName "User" timestamp)
 
         doc.CssSelect("table.forumline > tr")
         |> List.filter (fun row -> not (row.CssSelect("td.row1[width='100%']").IsEmpty))
         |> List.iteri(fun i row ->
+                // Last posting user.
+                let lastPosterId, lastPosterName = UserParser.IdAndNameFromProfileLink(row.CssSelect("td.row2").[2].CssSelect("a[href^='profile.php?mode=viewprofile']").Head)
+                Users.Set (User.Stub lastPosterId lastPosterName "User" timestamp)
+
                 let forumLink = row.CssSelect("td.row1 > span.forumlink > a.forumlink").Head
                 Forums.Set
                     {
