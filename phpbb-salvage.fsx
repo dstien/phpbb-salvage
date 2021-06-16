@@ -36,7 +36,30 @@ type User = {
     MSN        : string option
     ICQ        : int option
     Signature  : string option
-}
+    Sources    : Map<SourceType, DateTime>
+} with
+    static member Stub id name rank timestamp =
+        {
+            Id         = id
+            Name       = name
+            Rank       = rank
+            CustomRank = ""
+            JoinDate   = DateTime.MinValue
+            PostCount  = 0
+            CanEmail   = false
+            Avatar     = None
+            Location   = None
+            Homepage   = None
+            Occupation = None
+            Interests  = None
+            XboxTag    = None
+            AIM        = None
+            YM         = None
+            MSN        = None
+            ICQ        = None
+            Signature  = None
+            Sources    = Map.empty.Add(SourceType.Index, timestamp)
+        }
 
 type Edited = {
     User  : string
@@ -178,7 +201,13 @@ module Forums =
             printfn "%A" em.Current.Value
 
 module UserParser =
-    let idFromPrivMsgLink (doc : HtmlDocument) = Int32.Parse(Regex.Match(doc.CssSelect("a[href^='privmsg']").Head.AttributeValue("href"), @"&u=(\d+)").Groups.[1].Value)
+    let idFromLink (link : HtmlNode) =
+        Int32.Parse(Regex.Match(link.AttributeValue("href"), @"&u=(\d+)").Groups.[1].Value)
+
+    let IdAndNameFromProfileLink (link : HtmlNode) =
+        idFromLink link, link.InnerText()
+
+    let idFromPrivMsgLink (doc : HtmlDocument) = idFromLink(doc.CssSelect("a[href^='privmsg']").Head)
     let nameFromAuthorSearch (doc : HtmlDocument) = Regex.Match(doc.CssSelect("a[href^='search\.php\?search_author']").Head.AttributeValue("href"), @"author=(.+)").Groups.[1].Value
     let customRank (doc : HtmlDocument) = doc.CssSelect("span.postdetails").Head.InnerText().Trim()
 
@@ -225,7 +254,7 @@ module UserParser =
         | [] -> None
 
     let Parse (filename : string) =
-        let doc, _ = Util.ReadFile filename
+        let doc, timestamp = Util.ReadFile filename
 
         Users.Set
             {
@@ -247,11 +276,12 @@ module UserParser =
                 MSN        = findOptionalField doc "MSN Messenger"
                 ICQ        = ICQ (findRow doc "ICQ Number")
                 Signature  = None
+                Sources    = Map.empty.Add(SourceType.Profile, timestamp)
             }
 
 module MemberlistParser =
     let Parse (filename : string) =
-        let doc, _ = Util.ReadFile filename
+        let doc, timestamp = Util.ReadFile filename
 
         doc.CssSelect("form > table.forumline > tr").Tail
         |> List.filter(fun row -> not (row.CssSelect("td[class^='row'] a[href^='profile.php']").IsEmpty))
@@ -259,14 +289,12 @@ module MemberlistParser =
             let cols = row.CssSelect("td")
             let user = cols.[1].CssSelect("a[href^='profile.php']").Head
 
+            let id, name = UserParser.IdAndNameFromProfileLink user
+
             Users.Set
                 {
-                    Id         =
-                        user.AttributeValue("href")
-                            .Split("profile.php?mode=viewprofile&u=").[1]
-                            .Split("&").[0]
-                            |> int
-                    Name       = user.InnerText()
+                    Id         = id
+                    Name       = name
                     Rank       = "User"
                     CustomRank = ""
                     JoinDate   = DateTime.Parse(cols.[5].InnerText())
@@ -286,6 +314,7 @@ module MemberlistParser =
                     MSN        = None
                     ICQ        = None
                     Signature  = None
+                    Sources    = Map.empty.Add(SourceType.Memberlist, timestamp)
                 }
         )
 
@@ -455,7 +484,7 @@ module PostParser =
         else
             None
 
-    let Parse (topicId : int) (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) =
+    let Parse (topicId : int) (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) (timestamp : DateTime) =
         let postDetails = userDetails.CssSelect("span[class=postdetails]").Head.InnerText()
         let postBodyContent = postBody.CssSelect("td[colspan=2]").[1]
         let content, signature = Body.Parse(postBodyContent)
@@ -501,6 +530,7 @@ module PostParser =
             MSN = None
             ICQ = UserParser.ICQ userLinks
             Signature = signature
+            Sources = Map.empty.Add(SourceType.Topic, timestamp)
         }
 
         Users.Set user
@@ -582,7 +612,7 @@ module TopicParser =
         let userLinks   = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
 
         for i in [0..userDetails.Length-1] do
-            PostParser.Parse topic.Id userDetails.[i] userLinks.[i] postTime.[i] (postBody.[i])
+            PostParser.Parse topic.Id userDetails.[i] userLinks.[i] postTime.[i] postBody.[i] timestamp
             |> ignore
 
 module ForumParser =
@@ -641,10 +671,12 @@ module IndexParser =
         let doc, timestamp = Util.ReadFile filename
 
         // TODO
-        // Newest user
         // Last post
         // Moderators
         // Topic and post counts?
+
+        let newestId, newestName = UserParser.IdAndNameFromProfileLink(doc.CssSelect("span.gensmallwhite > strong > a[href^='profile.php?mode=viewprofile']").Head)
+        Users.Set (User.Stub newestId newestName "User" timestamp)
 
         doc.CssSelect("table.forumline > tr > td.row1[width='100%']")
         |> List.iteri(fun i row ->
