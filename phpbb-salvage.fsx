@@ -156,12 +156,162 @@ module Util =
         |> List.sortDescending
         |> List.head
 
+    // Get the previous source of given types, default to DateTime.MinValue.
+    let PreviousSourceOfTypes (sources : Map<SourceType, DateTime>) (types : SourceType list) =
+        sources
+        |> Map.filter (fun s _ -> types |> List.contains s)
+        |> Map.toList
+        |> List.map (fun s -> snd s)
+        |> List.sortDescending
+        |> List.tryHead
+        |> Option.defaultValue DateTime.MinValue
+
 module Users =
     let internal dict = new Collections.Generic.SortedDictionary<int, User>()
 
+    let internal merge (old: User) (new' : User) =
+        let newSourceType, newSourceTime = new'.Sources |> Map.toList |> List.head
+
+        // Check if already registered from earlier source of same type.
+        let previousOfSame = old.Sources |> Map.tryFind newSourceType |> Option.defaultValue DateTime.MinValue
+        if newSourceTime < previousOfSame then
+            old
+        else
+            let previousOfAny = Util.PreviousSourceOfAny old.Sources
+
+            let sourceIndexOrForum = [ SourceType.Index; SourceType.Forum ]
+            let previousIndexOrForum = Util.PreviousSourceOfTypes old.Sources sourceIndexOrForum
+            let newIsIndexOrForum = sourceIndexOrForum |> List.contains newSourceType
+
+            let sourceTopicOrProfile = [ SourceType.Topic; SourceType.Profile ]
+            let previousTopicOrProfile = Util.PreviousSourceOfTypes old.Sources sourceTopicOrProfile
+            let newIsTopicOrProfile = sourceTopicOrProfile |> List.contains newSourceType
+
+            let sourceTopicOrProfileOrMemberlist = [ SourceType.Topic; SourceType.Profile; SourceType.Memberlist ]
+            let previousTopicOrProfileOrMemberlist = Util.PreviousSourceOfTypes old.Sources sourceTopicOrProfileOrMemberlist
+            let newIsTopicOrProfileOrMemberlist = sourceTopicOrProfileOrMemberlist |> List.contains newSourceType
+
+            {
+                Id         = old.Id
+                Name       =
+                    // All source types contains username.
+                    if previousOfAny < newSourceTime then
+                        new'.Name
+                    else
+                        old.Name
+                Rank       =
+                    // A user can have different ranks in different forums.
+                    // Prioritise sources in this order:
+                    // 1. Topic
+                    // 2. Forum and index when existing field is "User"
+                    // 3. Any
+                    if newSourceType = SourceType.Topic && previousOfSame < newSourceTime then
+                        new'.Rank
+                    else if newIsIndexOrForum && previousIndexOrForum < newSourceTime && old.Rank = "User" then
+                        new'.Rank
+                    else
+                        old.Rank
+                CustomRank =
+                    // Custom rank is found in topic posts and user profiles.
+                    if newIsTopicOrProfile && previousTopicOrProfile < newSourceTime then
+                        new'.CustomRank
+                    else
+                        old.CustomRank
+                JoinDate   =
+                    // Join date is found in topic posts, user profiles and member list.
+                    if newIsTopicOrProfileOrMemberlist && previousTopicOrProfileOrMemberlist < newSourceTime then
+                        new'.JoinDate
+                    else
+                        old.JoinDate
+                PostCount  =
+                    // Post count is found in topic posts, user profiles and member list.
+                    if newIsTopicOrProfileOrMemberlist && previousTopicOrProfileOrMemberlist < newSourceTime then
+                        new'.PostCount
+                    else
+                        old.PostCount
+                CanEmail   =
+                    // Can email flag is found in topic posts, user profiles and member list.
+                    if newIsTopicOrProfileOrMemberlist && previousTopicOrProfileOrMemberlist < newSourceTime then
+                        new'.CanEmail
+                    else
+                        old.CanEmail
+                Avatar     =
+                    // Avatar is found in topic posts and user profiles.
+                    if newIsTopicOrProfile && previousTopicOrProfile < newSourceTime then
+                        new'.Avatar
+                    else
+                        old.Avatar
+                Location   =
+                    // Location is found in topic posts, user profiles and member list.
+                    if newIsTopicOrProfileOrMemberlist && previousTopicOrProfileOrMemberlist < newSourceTime then
+                        new'.Location
+                    else
+                        old.Location
+                Homepage   =
+                    // Homepage is found in topic posts, user profiles and member list.
+                    if newIsTopicOrProfileOrMemberlist && previousTopicOrProfileOrMemberlist < newSourceTime then
+                        new'.Homepage
+                    else
+                        old.Homepage
+                Occupation =
+                    // Occupation is only found in user profile.
+                    if newSourceType = SourceType.Profile && previousOfSame < newSourceTime then
+                        new'.Occupation
+                    else
+                        old.Occupation
+                Interests  =
+                    // Interests field is only found in user profile.
+                    if newSourceType = SourceType.Profile && previousOfSame < newSourceTime then
+                        new'.Interests
+                    else
+                        old.Interests
+                XboxTag    =
+                    // Xbox Live gamertag is found in topic posts and user profiles.
+                    if newIsTopicOrProfile && previousTopicOrProfile < newSourceTime then
+                        new'.XboxTag
+                    else
+                        old.XboxTag
+                AIM        =
+                    //AOL Instant Messenger is found in topic posts and user profiles.
+                    if newIsTopicOrProfile && previousTopicOrProfile < newSourceTime then
+                        new'.AIM
+                    else
+                        old.AIM
+                YM         =
+                    // Yahoo! Messenger is found in topic posts and user profiles.
+                    if newIsTopicOrProfile && previousTopicOrProfile < newSourceTime then
+                        new'.YM
+                    else
+                        old.YM
+                MSN        =
+                    // MSN Messenger is only found in user profile.
+                    if newSourceType = SourceType.Profile && previousOfSame < newSourceTime then
+                        new'.MSN
+                    else
+                        old.MSN
+                ICQ        =
+                    // ICQ is found in topic posts and user profiles.
+                    if newIsTopicOrProfile && previousTopicOrProfile < newSourceTime then
+                        new'.ICQ
+                    else
+                        old.ICQ
+                Signature  =
+                    // Signature is only found in topic posts, but displaying can be
+                    // disabled per post, so we will only update if it's set.
+                    if newSourceType = SourceType.Topic && previousOfSame < newSourceTime && new'.Signature.IsSome then
+                        new'.Signature
+                    else
+                        old.Signature
+                Sources    = old.Sources.Add(newSourceType, newSourceTime)
+            }
+
     let Set (user : User) =
         printfn "  Setting user %i '%s'" user.Id user.Name
-        dict.[user.Id] <- user
+
+        if dict.ContainsKey(user.Id) then
+            dict.[user.Id] <- merge dict.[user.Id] user
+        else
+            dict.[user.Id] <- user
 
     let Print () =
         printfn "Users ="
@@ -291,6 +441,9 @@ module Forums =
             old
         else
             let previousOfAny = Util.PreviousSourceOfAny old.Sources
+            let sourceIndexOrForum = [ SourceType.Index; SourceType.Forum ]
+            let previousIndexOrForum = Util.PreviousSourceOfTypes old.Sources sourceIndexOrForum
+            let newIsIndexOrForum = sourceIndexOrForum |> List.contains newSourceType
             {
                 Id          = old.Id
                 Name        =
@@ -308,14 +461,7 @@ module Forums =
                         old.Description
                 Moderators  =
                     // Moderators are listed in index and forum views.
-                    let previous =
-                        old.Sources
-                        |> Map.filter (fun s _ -> [SourceType.Index; SourceType.Forum] |> List.contains s)
-                        |> Map.toList
-                        |> List.map(fun s -> snd s)
-                        |> List.sortDescending
-
-                    if ([SourceType.Index; SourceType.Forum] |> List.contains newSourceType) && not previous.IsEmpty && previous.Head < newSourceTime then
+                    if newIsIndexOrForum && previousIndexOrForum < newSourceTime then
                         new'.Moderators
                     else
                         old.Moderators
