@@ -5,6 +5,7 @@
 #r "nuget: FSharp.Data"
 
 open System
+open System.Linq
 open System.Text
 open System.Text.RegularExpressions
 open FSharp.Data
@@ -316,6 +317,16 @@ module Users =
     let Print () =
         printfn "Users ="
         Util.PrintDictionary dict
+
+    // Deleted users don't have a visible id. We try to look up by name and assign the first negative id if not found.
+    let GuestUserId name =
+        let user = dict.Where(fun user -> user.Value.Name = name).FirstOrDefault()
+
+        if user.Key = 0 then
+            let rec findAvailableGuestId id = if dict.ContainsKey id then findAvailableGuestId (id - 1) else id
+            findAvailableGuestId -1
+        else
+            user.Key
 
 module Posts =
     let internal dict = new Collections.Generic.SortedDictionary<int, Post>()
@@ -787,46 +798,56 @@ module PostParser =
         let postBodyContent = postBody.CssSelect("td[colspan=2]").[1]
         let content, signature = Body.Parse(postBodyContent)
 
-        let user = {
-            Id   = UserParser.IdFromLink (userLinks.CssSelect("a[href^='profile.php']").Head)
-            Name = userDetails.CssSelect("span[class=name] b").Head.InnerText()
-            Rank =
-                match userDetails.CssSelect("span[class=postdetails] > img") with
-                | img::_ -> (img.AttributeValue("alt"))
-                | [] -> "User"
-            CustomRank = Regex.Match(postDetails, @"^(.*)\n").Groups.[1].Value
-            JoinDate =
-                DateTime.Parse
-                    (Regex.Match(postDetails, @"Joined: (\d{1,2} \w{3} \d{4})\n").Groups.[1].Value)
-            Avatar =
-                match userDetails.CssSelect("span[class=postdetails] > div > img") with
-                | img::_ -> Some (img.AttributeValue("src"))
-                | [] -> None
-            PostCount =
-                Regex.Match(postDetails, @"Posts: (\d+)").Groups.[1].Value
-                |> int
-            CanEmail = UserParser.CanEmail userLinks
-            Location =
-                let locationMatch = Regex.Match(postDetails, @"Location: (.*)\n")
-                match locationMatch.Success with
-                | true -> Some locationMatch.Groups.[1].Value
-                | false -> None
-            Occupation = None
-            Interests = None
-            Homepage = UserParser.Homepage userLinks
-            XboxTag =
-                let xblDetails = userDetails.CssSelect("div[class=postdetails]").Head.InnerText()
-                let xblMatch = Regex.Match(xblDetails, @"^XboxLiveGamertag:\n(.+)$")
-                match xblMatch.Success with
-                | true -> Some xblMatch.Groups.[1].Value
-                | false -> None
-            AIM = UserParser.AIM userLinks
-            YM = UserParser.YM userLinks
-            MSN = None
-            ICQ = UserParser.ICQ userLinks
-            Signature = signature
-            Sources = Map.empty.Add(SourceType.Topic, timestamp)
-        }
+        let user =
+            let profileLink = userLinks.CssSelect("a[href^='profile.php']")
+            let name = userDetails.CssSelect("span[class=name] b").Head.InnerText()
+            let customRank = Regex.Match(postDetails, @"^(.*)\n").Groups.[1].Value
+
+            // Existing user
+            if not profileLink.IsEmpty then
+                {
+                    Id   = UserParser.IdFromLink (userLinks.CssSelect("a[href^='profile.php']").Head)
+                    Name = name
+                    Rank =
+                        match userDetails.CssSelect("span[class=postdetails] > img") with
+                        | img::_ -> (img.AttributeValue("alt"))
+                        | [] -> "User"
+                    CustomRank = customRank
+                    JoinDate =
+                        DateTime.Parse
+                            (Regex.Match(postDetails, @"Joined: (\d{1,2} \w{3} \d{4})\n").Groups.[1].Value)
+                    Avatar =
+                        match userDetails.CssSelect("span[class=postdetails] > div > img") with
+                        | img::_ -> Some (img.AttributeValue("src"))
+                        | [] -> None
+                    PostCount =
+                        Regex.Match(postDetails, @"Posts: (\d+)").Groups.[1].Value
+                        |> int
+                    CanEmail = UserParser.CanEmail userLinks
+                    Location =
+                        let locationMatch = Regex.Match(postDetails, @"Location: (.*)\n")
+                        match locationMatch.Success with
+                        | true -> Some locationMatch.Groups.[1].Value
+                        | false -> None
+                    Occupation = None
+                    Interests = None
+                    Homepage = UserParser.Homepage userLinks
+                    XboxTag =
+                        let xblDetails = userDetails.CssSelect("div[class=postdetails]").Head.InnerText()
+                        let xblMatch = Regex.Match(xblDetails, @"^XboxLiveGamertag:\n(.+)$")
+                        match xblMatch.Success with
+                        | true -> Some xblMatch.Groups.[1].Value
+                        | false -> None
+                    AIM = UserParser.AIM userLinks
+                    YM = UserParser.YM userLinks
+                    MSN = None
+                    ICQ = UserParser.ICQ userLinks
+                    Signature = signature
+                    Sources = Map.empty.Add(SourceType.Topic, timestamp)
+                }
+            // Guest (deleted)
+            else
+                User.Stub (Users.GuestUserId name) name customRank timestamp
 
         Users.Set user
 
