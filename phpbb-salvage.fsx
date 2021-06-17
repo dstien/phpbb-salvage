@@ -75,6 +75,7 @@ type Post = {
     Title     : string
     Content   : string
     Edited    : Edited option
+    Sources   : Map<SourceType, DateTime>
 }
 
 type PollOption = {
@@ -126,16 +127,22 @@ type Forum = {
 
 module Util =
     // Read file into HtmlDocument with timestamp.
-    let ReadFile (filename: string) =
+    let ReadFile (filename : string) =
         let timestamp = IO.File.GetCreationTime(filename)
 
         // Read entire file and remove all newlines. phpbb have inserted <br/> for every newline in post bodies which FSharp.Data substitutes back to newline.
         let src = IO.File.ReadAllText(filename).Replace("\n", "")
         let doc = HtmlDocument.Load(new IO.StringReader(src))
 
-        printfn "Read %s (%s)\n" filename (timestamp.ToString())
+        printfn "Read %s (%s)" filename (timestamp.ToString())
 
         (doc, timestamp)
+
+    // Print items in a sorted dictionary one by one.
+    let PrintDictionary (dict : Collections.Generic.SortedDictionary<int, 'T>) =
+        let mutable em = dict.GetEnumerator()
+        while em.MoveNext() do
+            printfn "%A" em.Current.Value
 
     // Get a numeric field value from query string.
     let NumericQueryField (link : HtmlNode) (field : string) =
@@ -153,21 +160,37 @@ module Users =
     let internal dict = new Collections.Generic.SortedDictionary<int, User>()
 
     let Set (user : User) =
-        printfn "Setting user %i '%s'" user.Id user.Name
+        printfn "  Setting user %i '%s'" user.Id user.Name
         dict.[user.Id] <- user
 
     let Print () =
-        printfn "Users = %A" dict
+        printfn "Users ="
+        Util.PrintDictionary dict
 
 module Posts =
     let internal dict = new Collections.Generic.SortedDictionary<int, Post>()
 
+    let internal merge (old: Post) (new' : Post) =
+        let _, newSourceTime = new'.Sources |> Map.toList |> List.head
+        let previousOfAny = Util.PreviousSourceOfAny old.Sources
+
+        // Posts can only originate from topic sources, so we're only comparing timestamps.
+        if newSourceTime < previousOfAny then
+            old
+        else
+            new'
+
     let Set (post : Post) =
-        printfn "Setting post %i in topic %i by user %i" post.Id post.UserId post.UserId
-        dict.[post.Id] <- post
+        printfn "  Setting post %i in topic %i by user %i" post.Id post.TopicId post.UserId
+
+        if dict.ContainsKey(post.Id) then
+            dict.[post.Id] <- merge dict.[post.Id] post
+        else
+            dict.[post.Id] <- post
 
     let Print () =
-        printfn "Posts = %A" dict
+        printfn "Posts ="
+        Util.PrintDictionary dict
 
 module Topics =
     let internal dict = new Collections.Generic.SortedDictionary<int, Topic>()
@@ -245,7 +268,7 @@ module Topics =
             }
 
     let Set (topic : Topic) =
-        printfn "Setting topic %i '%s'" topic.Id topic.Title
+        printfn "  Setting topic %i '%s'" topic.Id topic.Title
 
         if dict.ContainsKey(topic.Id) then
             dict.[topic.Id] <- merge dict.[topic.Id] topic
@@ -254,9 +277,7 @@ module Topics =
 
     let Print () =
         printfn "Topics ="
-        let mutable em = dict.GetEnumerator()
-        while em.MoveNext() do
-            printfn "%A" em.Current.Value
+        Util.PrintDictionary dict
 
 module Forums =
     let internal dict = new Collections.Generic.SortedDictionary<int, Forum>()
@@ -320,7 +341,7 @@ module Forums =
             }
 
     let Set (forum : Forum) =
-        printfn "Setting forum %i '%s'" forum.Id forum.Name
+        printfn "  Setting forum %i '%s'" forum.Id forum.Name
 
         if dict.ContainsKey(forum.Id) then
             dict.[forum.Id] <- merge dict.[forum.Id] forum
@@ -329,9 +350,7 @@ module Forums =
 
     let Print () =
         printfn "Forums ="
-        let mutable em = dict.GetEnumerator()
-        while em.MoveNext() do
-            printfn "%A" em.Current.Value
+        Util.PrintDictionary dict
 
 module UserParser =
     let IdFromLink (link : HtmlNode) =
@@ -678,6 +697,7 @@ module PostParser =
                 Title     = postBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
                 Content   = content
                 Edited    = ParseEditDetails postBodyContent
+                Sources   = Map.empty.Add(SourceType.Topic, timestamp)
             }
 
 module TopicParser =
