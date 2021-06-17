@@ -877,39 +877,41 @@ module TopicParser =
     let Parse (filename : string) =
         let doc, timestamp = Util.ReadFile filename
 
-        let forum =
-            let l = doc.CssSelect("head > link[rel=up]").Head
-            Forum.Stub (Util.NumericQueryField l "f") (l.AttributeValue("title")) timestamp
+        let forumLink = doc.CssSelect("head > link[rel=up]")
 
-        Forums.Set forum
+        if not forumLink.IsEmpty then
+            let forum =
+                Forum.Stub (Util.NumericQueryField forumLink.Head "f") (forumLink.Head.AttributeValue("title")) timestamp
 
-        let topic =
-            let id, title = IdAndTitleFromTopicLink(doc.CssSelect("a.cattitlewhite").[2])
-            let locked = not (doc.CssSelect("table.forumline > tr > th img[alt^='This topic is locked']").IsEmpty)
-            {
-                Id           = id
-                ForumId      = forum.Id
-                UserId       = -1
-                Title        = title
-                Locked       = locked
-                Announcement = false
-                Sticky       = false
-                Poll         = parsePoll doc
-                Replies      = -1
-                Views        = -1
-                Sources      = Map.empty.Add(SourceType.Topic, timestamp)
-            }
+            Forums.Set forum
 
-        Topics.Set topic
+            let topic =
+                let id, title = IdAndTitleFromTopicLink(doc.CssSelect("a.cattitlewhite").[2])
+                let locked = not (doc.CssSelect("table.forumline > tr > th img[alt^='This topic is locked']").IsEmpty)
+                {
+                    Id           = id
+                    ForumId      = forum.Id
+                    UserId       = -1
+                    Title        = title
+                    Locked       = locked
+                    Announcement = false
+                    Sticky       = false
+                    Poll         = parsePoll doc
+                    Replies      = -1
+                    Views        = -1
+                    Sources      = Map.empty.Add(SourceType.Topic, timestamp)
+                }
 
-        let userDetails = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
-        let postBody    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
-        let postTime    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
-        let userLinks   = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
+            Topics.Set topic
 
-        for i in [0..userDetails.Length-1] do
-            PostParser.Parse topic.Id userDetails.[i] userLinks.[i] postTime.[i] postBody.[i] timestamp
-            |> ignore
+            let userDetails = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
+            let postBody    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
+            let postTime    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
+            let userLinks   = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
+
+            for i in [0..userDetails.Length-1] do
+                PostParser.Parse topic.Id userDetails.[i] userLinks.[i] postTime.[i] postBody.[i] timestamp
+                |> ignore
 
 module ForumParser =
     let Parse (filename : string) =
@@ -1005,6 +1007,10 @@ module IndexParser =
                         Sources     = Map.empty.Add(SourceType.Index, timestamp)
                     }
             )
+
+let readDir dir =
+    IO.Directory.GetFiles(dir, "viewtopic.php*")
+    |> Array.iter TopicParser.Parse
 
 Users.Print()
 Forums.Print()
