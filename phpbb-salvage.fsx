@@ -93,6 +93,7 @@ type Topic = {
     ForumId      : int
     UserId       : int
     Title        : string
+    Locked       : bool
     Announcement : bool
     Sticky       : bool
     Poll         : Poll option
@@ -200,6 +201,12 @@ module Topics =
                         new'.Title
                     else
                         old.Title
+                Locked       =
+                    // All source types contains locked flag.
+                    if previousOfAny < newSourceTime then
+                        new'.Locked
+                    else
+                        old.Locked
                 Announcement =
                     // Only forum view has announcement flag.
                     if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
@@ -712,11 +719,13 @@ module TopicParser =
 
         let topic =
             let id, title = IdAndTitleFromTopicLink(doc.CssSelect("a.cattitlewhite").[2])
+            let locked = not (doc.CssSelect("table.forumline > tr > th img[alt^='This topic is locked']").IsEmpty)
             {
                 Id           = id
                 ForumId      = forum.Id
                 UserId       = -1
                 Title        = title
+                Locked       = locked
                 Announcement = false
                 Sticky       = false
                 Poll         = parsePoll doc
@@ -761,6 +770,7 @@ module ForumParser =
         |> List.filter(fun row -> not (row.CssSelect("td.row1 a[href^='viewtopic.php']").IsEmpty))
         |> List.iter(fun row ->
             let id, title = TopicParser.IdAndTitleFromTopicLink(row.CssSelect("a.topictitle").Head)
+            let locked = not (row.CssSelect("td.row1 > img[alt^='This topic is locked']").IsEmpty)
             let flags = row.CssSelect("span.topictitle > b")
             let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
 
@@ -778,6 +788,7 @@ module ForumParser =
                     ForumId      = forum.Id
                     UserId       = authorId
                     Title        = title
+                    Locked       = locked
                     Announcement = hasFlag "Announcement"
                     Sticky       = hasFlag "Sticky"
                     Poll         =
