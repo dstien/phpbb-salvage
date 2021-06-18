@@ -26,7 +26,7 @@ type User = {
     AIM        : string option
     YM         : string option
     MSN        : string option
-    ICQ        : int option
+    ICQ        : string option
     Signature  : string option
     Sources    : Map<SourceType, DateTime>
 } with

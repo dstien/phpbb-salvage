@@ -59,7 +59,7 @@ module User =
         | [] -> None
     let ICQ (node : HtmlNode) =
         match node.CssSelect("a[href^='http://wwp.icq.com/']") with
-        | a::_ -> Some (Int32.Parse(Regex.Match(a.AttributeValue("href"), @"\?to=(\d+)$").Groups.[1].Value))
+        | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"\?to=(\d+)$").Groups.[1].Value)
         | [] -> None
 
     let Parse (filename : string) =
