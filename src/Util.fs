@@ -6,15 +6,32 @@ open FSharp.Data
 
 open Types
 
+// Parse config from command line arguments.
+let rec ParseArgs argv (config : Config) =
+    match argv with
+    | "-v"::xs -> ParseArgs xs { config with Verbosity = config.Verbosity + 1 }
+    | "-q"::xs -> ParseArgs xs { config with Verbosity = 0 }
+    | str::xs ->
+        // Set DataDir or error if it already has been set.
+        match config.DataDir with
+        | "" -> ParseArgs xs { config with DataDir = str }
+        | _ -> { config with Error = true }
+    | [] ->
+        // Reached end. Error if DataDir weren't set.
+        match config.DataDir with
+        | "" -> { config with Error = true }
+        | _ -> config
+
 // Read file into HtmlDocument with timestamp.
-let ReadFile (filename : string) =
+let ReadFile (config : Config) (filename : string) =
     let timestamp = IO.File.GetCreationTime(filename)
 
     // Read entire file and remove all newlines. phpbb have inserted <br/> for every newline in post bodies which FSharp.Data substitutes back to newline.
     let src = IO.File.ReadAllText(filename).Replace("\n", "")
     let doc = HtmlDocument.Load(new IO.StringReader(src))
 
-    printfn "Read %s (%s)" filename (timestamp.ToString())
+    if config.Verbosity > 0 then
+        printfn "Read %s (%s)" filename (timestamp.ToString())
 
     (doc, timestamp)
 

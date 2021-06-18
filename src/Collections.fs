@@ -145,8 +145,9 @@ module Users =
                 Sources    = old.Sources.Add(newSourceType, newSourceTime)
             }
 
-    let Set (user : User) =
-        printfn "  Setting user %i '%s'" user.Id user.Name
+    let Set (config : Config) (user : User) =
+        if config.Verbosity > 1 then
+            printfn "  Setting user %i '%s'" user.Id user.Name
 
         if dict.ContainsKey(user.Id) then
             dict.[user.Id] <- merge dict.[user.Id] user
@@ -156,6 +157,9 @@ module Users =
     let Print () =
         printfn "Users ="
         Util.PrintDictionary dict
+
+    let Summary () =
+        printfn "Users: %d" dict.Count
 
     // Deleted users don't have a visible id. We try to look up by name and assign the first negative id if not found.
     let GuestUserId name =
@@ -180,8 +184,9 @@ module Posts =
         else
             new'
 
-    let Set (post : Post) =
-        printfn "  Setting post %i in topic %i by user %i" post.Id post.TopicId post.UserId
+    let Set (config : Config) (post : Post) =
+        if config.Verbosity > 1 then
+            printfn "  Setting post %i in topic %i by user %i" post.Id post.TopicId post.UserId
 
         if dict.ContainsKey(post.Id) then
             dict.[post.Id] <- merge dict.[post.Id] post
@@ -191,6 +196,10 @@ module Posts =
     let Print () =
         printfn "Posts ="
         Util.PrintDictionary dict
+
+    let Summary () =
+        printfn "Posts: %d" dict.Count
+
 
 module Topics =
     let internal dict = new SortedDictionary<int, Topic>()
@@ -267,8 +276,9 @@ module Topics =
                 Sources     = old.Sources.Add(newSourceType, newSourceTime)
             }
 
-    let Set (topic : Topic) =
-        printfn "  Setting topic %i '%s'" topic.Id topic.Title
+    let Set (config : Config) (topic : Topic) =
+        if config.Verbosity > 1 then
+            printfn "  Setting topic %i '%s'" topic.Id topic.Title
 
         if dict.ContainsKey(topic.Id) then
             dict.[topic.Id] <- merge dict.[topic.Id] topic
@@ -278,6 +288,9 @@ module Topics =
     let Print () =
         printfn "Topics ="
         Util.PrintDictionary dict
+
+    let Summary () =
+        printfn "Topics: %d" dict.Count
 
 module Forums =
     let internal dict = new SortedDictionary<int, Forum>()
@@ -336,8 +349,9 @@ module Forums =
                 Sources     = old.Sources.Add(newSourceType, newSourceTime)
             }
 
-    let Set (forum : Forum) =
-        printfn "  Setting forum %i '%s'" forum.Id forum.Name
+    let Set (config : Config) (forum : Forum) =
+        if config.Verbosity > 1 then
+            printfn "  Setting forum %i '%s'" forum.Id forum.Name
 
         if dict.ContainsKey(forum.Id) then
             dict.[forum.Id] <- merge dict.[forum.Id] forum
@@ -347,3 +361,6 @@ module Forums =
     let Print () =
         printfn "Forums ="
         Util.PrintDictionary dict
+
+    let Summary () =
+        printfn "Forums: %d" dict.Count

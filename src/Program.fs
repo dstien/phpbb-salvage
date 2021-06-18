@@ -1,36 +1,53 @@
 open System
 open System.Linq
 
+open Types
 open Collections
 
-let ReadFiles (dir : string) (pattern : string) (parser : string -> unit) =
-    IO.DirectoryInfo(dir)
+let ReadFiles (config : Config) (pattern : string) (parser : Config -> string -> unit) =
+    if config.Verbosity > 0 then
+        printfn "Reading data directory \"%s\"..." config.DataDir
+
+    IO.DirectoryInfo(config.DataDir)
         .GetFiles()
         .Where(fun f -> f.Name.Contains(pattern))
         .Where(fun f -> not (f.Name.Contains("login.php")))
         .OrderByDescending(fun f -> f.CreationTime)
         .Select(fun f-> f.FullName)
         .ToArray()
-    |> Array.iter parser
+    |> Array.iter (parser config)
 
-let ReadDir dir =
-    ReadFiles dir "viewtopic.php" Parsers.Topic.Parse
-    ReadFiles dir "viewforum.php" Parsers.Forum.Parse
-    ReadFiles dir "memberlist.php" Parsers.Memberlist.Parse
-    ReadFiles dir "profile.php" Parsers.User.Parse
+let ReadDir (config : Config) =
+    ReadFiles config "viewtopic.php" Parsers.Topic.Parse
+    ReadFiles config "viewforum.php" Parsers.Forum.Parse
+    ReadFiles config "memberlist.php" Parsers.Memberlist.Parse
+    ReadFiles config "profile.php" Parsers.User.Parse
 
 [<EntryPoint>]
 let main argv =
-    if argv.Length <> 1 then
-        printfn "Usage: %s datadir" System.AppDomain.CurrentDomain.FriendlyName
+    let config = Util.ParseArgs (List.ofArray argv) { DataDir = ""; Verbosity = 1; Error = false }
+
+    if config.Error then
+        printfn "Usage: %s [-v] [-q] datadir" AppDomain.CurrentDomain.FriendlyName
+        printfn ""
+        printfn "  -v  Increase verbosity"
+        printfn "  -q  Quiet"
+        printfn ""
         1
     else
-        printfn "Reading data directory \"%s\"..." argv.[0]
-        ReadDir argv.[0]
+        ReadDir config
 
-        Users.Print()
-        Forums.Print()
-        Topics.Print ()
-        Posts.Print ()
+        match config.Verbosity with
+        | 0 -> ()
+        | 1 ->
+            Users.Summary()
+            Forums.Summary()
+            Topics.Summary()
+            Posts.Summary()
+        | _ ->
+            Users.Print()
+            Forums.Print()
+            Topics.Print()
+            Posts.Print()
 
         0

@@ -62,11 +62,11 @@ module User =
         | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"\?to=(\d+)$").Groups.[1].Value)
         | [] -> None
 
-    let Parse (filename : string) =
-        let doc, timestamp = Util.ReadFile filename
+    let Parse (config : Config) (filename : string) =
+        let doc, timestamp = Util.ReadFile config filename
 
         if not (doc.CssSelect("a[href^='privmsg']").IsEmpty) then
-            Users.Set
+            Users.Set config
                 {
                     Id         = idFromPrivMsgLink doc
                     Name       = nameFromAuthorSearch doc
@@ -90,8 +90,8 @@ module User =
                 }
 
 module Memberlist =
-    let Parse (filename : string) =
-        let doc, timestamp = Util.ReadFile filename
+    let Parse (config : Config) (filename : string) =
+        let doc, timestamp = Util.ReadFile config filename
 
         doc.CssSelect("form > table.forumline > tr").Tail
         |> List.filter(fun row -> not (row.CssSelect("td[class^='row'] a[href^='profile.php']").IsEmpty))
@@ -101,7 +101,7 @@ module Memberlist =
 
             let id, name = User.IdAndNameFromProfileLink user
 
-            Users.Set
+            Users.Set config
                 {
                     Id         = id
                     Name       = name
@@ -294,7 +294,7 @@ module Post =
         else
             None
 
-    let Parse (topicId : int) (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) (timestamp : DateTime) =
+    let Parse (config : Config) (topicId : int) (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) (timestamp : DateTime) =
         let postDetails = userDetails.CssSelect("span[class=postdetails]").Head.InnerText()
         let postBodyContent = postBody.CssSelect("td[colspan=2]").[1]
         let content, signature = Body.Parse(postBodyContent)
@@ -350,9 +350,9 @@ module Post =
             else
                 User.Stub (Users.GuestUserId name) name customRank timestamp
 
-        Users.Set user
+        Users.Set config user
 
-        Posts.Set
+        Posts.Set config
             {
                 Id        =
                     userDetails.CssSelect("a").Head.AttributeValue("name")
@@ -394,8 +394,8 @@ module Topic =
         else
             None
 
-    let Parse (filename : string) =
-        let doc, timestamp = Util.ReadFile filename
+    let Parse (config : Config) (filename : string) =
+        let doc, timestamp = Util.ReadFile config filename
 
         let forumLink = doc.CssSelect("head > link[rel=up]")
 
@@ -403,7 +403,7 @@ module Topic =
             let forum =
                 Forum.Stub (Util.NumericQueryField forumLink.Head "f") (forumLink.Head.AttributeValue("title")) timestamp
 
-            Forums.Set forum
+            Forums.Set config forum
 
             let topic =
                 let id, title = IdAndTitleFromTopicLink(doc.CssSelect("a.cattitlewhite").[2])
@@ -422,20 +422,23 @@ module Topic =
                     Sources      = Map.empty.Add(SourceType.Topic, timestamp)
                 }
 
-            Topics.Set topic
+            Topics.Set config topic
 
             let userDetails = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
             let postBody    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
             let postTime    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
             let userLinks   = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
 
+            if config.Verbosity > 2 then
+                printfn "    userDetails.Length = %i postBody.Length = %i postBody.Length = %i userLinks.Length = %i" userDetails.Length postBody.Length postTime.Length userLinks.Length
+
             for i in [0..userDetails.Length-1] do
-                Post.Parse topic.Id userDetails.[i] userLinks.[i] postTime.[i] postBody.[i] timestamp
+                Post.Parse config topic.Id userDetails.[i] userLinks.[i] postTime.[i] postBody.[i] timestamp
                 |> ignore
 
 module Forum =
-    let Parse (filename : string) =
-        let doc, timestamp = Util.ReadFile filename
+    let Parse (config : Config) (filename : string) =
+        let doc, timestamp = Util.ReadFile config filename
 
         // Moderators.
         let moderators =
@@ -444,14 +447,14 @@ module Forum =
                 let id, name = User.IdAndNameFromProfileLink(m)
                 User.Stub id name "Moderator" timestamp
             )
-        moderators |> List.iter (fun m -> Users.Set m)
+        moderators |> List.iter (fun m -> Users.Set config m)
 
         // Current forum.
         let forum =
             let l = doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.cattitlewhite > a.cattitlewhite[href^='viewforum.php']").Head
             let f = Forum.Stub (Util.NumericQueryField l "f") (l.InnerText()) timestamp
             { f with Moderators = moderators |> List.map (fun m -> m.Id) }
-        Forums.Set forum
+        Forums.Set config forum
 
         // Topic rows in forum table.
         doc.CssSelect("form > table.forumline > tr").Tail
@@ -475,7 +478,7 @@ module Forum =
                     let id = Users.GuestUserId name
                     id, name, "Guest"
 
-            Users.Set (User.Stub authorId authorName authorRank timestamp)
+            Users.Set config (User.Stub authorId authorName authorRank timestamp)
 
             // Last posting user.
             let lastPosterLink = row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']")
@@ -489,9 +492,9 @@ module Forum =
                     let name = Regex.Match(row.CssSelect("td.row2").[1].InnerText().Trim(), @"\s(\S+)$").Groups.[1].Value
                     let id = Users.GuestUserId name
                     id, name, "Guest"
-            Users.Set (User.Stub lastPosterId lastPosterName lastPosterRank timestamp)
+            Users.Set config (User.Stub lastPosterId lastPosterName lastPosterRank timestamp)
 
-            Topics.Set
+            Topics.Set config
                 {
                     Id           = id
                     ForumId      = forum.Id
@@ -511,12 +514,12 @@ module Forum =
         )
 
 module IndexParser =
-    let Parse (filename : string) =
-        let doc, timestamp = Util.ReadFile filename
+    let Parse (config : Config) (filename : string) =
+        let doc, timestamp = Util.ReadFile config filename
 
         // Newest registered user.
         let newestId, newestName = User.IdAndNameFromProfileLink(doc.CssSelect("span.gensmallwhite > strong > a[href^='profile.php?mode=viewprofile']").Head)
-        Users.Set (User.Stub newestId newestName "User" timestamp)
+        Users.Set config (User.Stub newestId newestName "User" timestamp)
 
         // Find forum rows in index page table.
         doc.CssSelect("table.forumline > tr")
@@ -524,7 +527,7 @@ module IndexParser =
         |> List.iteri(fun i row ->
                 // Last posting user.
                 let lastPosterId, lastPosterName = User.IdAndNameFromProfileLink(row.CssSelect("td.row2").[2].CssSelect("a[href^='profile.php?mode=viewprofile']").Head)
-                Users.Set (User.Stub lastPosterId lastPosterName "User" timestamp)
+                Users.Set config (User.Stub lastPosterId lastPosterName "User" timestamp)
 
                 // Moderators.
                 let moderators =
@@ -533,10 +536,10 @@ module IndexParser =
                         let id, name = User.IdAndNameFromProfileLink(m)
                         User.Stub id name "Moderator" timestamp
                     )
-                moderators |> List.iter (fun m -> Users.Set m)
+                moderators |> List.iter (fun m -> Users.Set config m)
 
                 let forumLink = row.CssSelect("td.row1 > span.forumlink > a.forumlink").Head
-                Forums.Set
+                Forums.Set config
                     {
                         Id          = Util.NumericQueryField forumLink "f"
                         Name        = forumLink.InnerText()

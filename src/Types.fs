@@ -2,6 +2,12 @@ module Types
 
 open System
 
+type Config = {
+    DataDir   : string
+    Verbosity : int
+    Error     : bool
+}
+
 type SourceType =
     | Index
     | Forum
