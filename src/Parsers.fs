@@ -65,28 +65,29 @@ module User =
     let Parse (filename : string) =
         let doc, timestamp = Util.ReadFile filename
 
-        Users.Set
-            {
-                Id         = idFromPrivMsgLink doc
-                Name       = nameFromAuthorSearch doc
-                Rank       = "User"
-                CustomRank = customRank doc
-                JoinDate   = joined doc
-                PostCount  = postCount doc
-                CanEmail   = CanEmail (findRow doc "E-mail address")
-                Avatar     = avatar doc
-                Location   = findOptionalField doc "Location"
-                Homepage   = findOptionalField doc "Website"
-                Occupation = findOptionalField doc "Occupation"
-                Interests  = findOptionalField doc "Interests"
-                XboxTag    = findOptionalField doc "XboxLiveGamertag"
-                AIM        = AIM (findRow doc "AIM Address")
-                YM         = YM (findRow doc "Yahoo Messenger")
-                MSN        = findOptionalField doc "MSN Messenger"
-                ICQ        = ICQ (findRow doc "ICQ Number")
-                Signature  = None
-                Sources    = Map.empty.Add(SourceType.Profile, timestamp)
-            }
+        if not (doc.CssSelect("a[href^='privmsg']").IsEmpty) then
+            Users.Set
+                {
+                    Id         = idFromPrivMsgLink doc
+                    Name       = nameFromAuthorSearch doc
+                    Rank       = "User"
+                    CustomRank = customRank doc
+                    JoinDate   = joined doc
+                    PostCount  = postCount doc
+                    CanEmail   = CanEmail (findRow doc "E-mail address")
+                    Avatar     = avatar doc
+                    Location   = findOptionalField doc "Location"
+                    Homepage   = findOptionalField doc "Website"
+                    Occupation = findOptionalField doc "Occupation"
+                    Interests  = findOptionalField doc "Interests"
+                    XboxTag    = findOptionalField doc "XboxLiveGamertag"
+                    AIM        = AIM (findRow doc "AIM Address")
+                    YM         = YM (findRow doc "Yahoo Messenger")
+                    MSN        = findOptionalField doc "MSN Messenger"
+                    ICQ        = ICQ (findRow doc "ICQ Number")
+                    Signature  = None
+                    Sources    = Map.empty.Add(SourceType.Profile, timestamp)
+                }
 
 module Memberlist =
     let Parse (filename : string) =
