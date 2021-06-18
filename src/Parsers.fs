@@ -463,12 +463,33 @@ module Forum =
             let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
 
             // Topic author.
-            let authorId, authorName = User.IdAndNameFromProfileLink(row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']").Head)
-            Users.Set (User.Stub authorId authorName "User" timestamp)
+            let authorLink = row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']")
+            let authorId, authorName, authorRank =
+                // Existing user
+                if not authorLink.IsEmpty then
+                    let id, name = User.IdAndNameFromProfileLink(authorLink.Head)
+                    id, name, "User"
+                // Guest (deleted)
+                else
+                    let name = row.CssSelect("td.row3").Head.InnerText().Trim()
+                    let id = Users.GuestUserId name
+                    id, name, "Guest"
+
+            Users.Set (User.Stub authorId authorName authorRank timestamp)
 
             // Last posting user.
-            let lastPosterId, lastPosterName = User.IdAndNameFromProfileLink(row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']").Head)
-            Users.Set (User.Stub lastPosterId lastPosterName "User" timestamp)
+            let lastPosterLink = row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']")
+            let lastPosterId, lastPosterName, lastPosterRank =
+                // Existing user
+                if not lastPosterLink.IsEmpty then
+                    let id, name = User.IdAndNameFromProfileLink(lastPosterLink.Head)
+                    id, name, "User"
+                // Guest (deleted)
+                else
+                    let name = Regex.Match(row.CssSelect("td.row2").[1].InnerText().Trim(), @"\s(\S+)$").Groups.[1].Value
+                    let id = Users.GuestUserId name
+                    id, name, "Guest"
+            Users.Set (User.Stub lastPosterId lastPosterName lastPosterRank timestamp)
 
             Topics.Set
                 {
