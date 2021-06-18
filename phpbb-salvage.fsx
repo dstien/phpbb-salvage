@@ -149,6 +149,18 @@ module Util =
     let NumericQueryField (link : HtmlNode) (field : string) =
         Int32.Parse(Regex.Match(link.AttributeValue("href"), @"(\?|&)" + field + @"=(\d+)").Groups.[2].Value)
 
+    // Parse forum timestamp string relative to source time.
+    let ParseForumTimestamp (text : string) (sourceTime : DateTime) =
+        let formatDate (date : DateTime) = date.ToUniversalTime().ToString("dd MMM yyyy")
+
+        let adjustedText =
+            match text with
+            | t when t.StartsWith("Today") -> text.Replace("Today", formatDate sourceTime)
+            | t when t.StartsWith("Yesterday") -> text.Replace("Yesterday", formatDate (sourceTime.AddDays(-1.0)))
+            | t -> t
+
+        DateTime.Parse(adjustedText)
+
     // Get the previous source by date, regardless of type.
     let PreviousSourceOfAny (sources : Map<SourceType, DateTime>) =
         sources
@@ -856,9 +868,7 @@ module PostParser =
                 Id        =
                     userDetails.CssSelect("a").Head.AttributeValue("name")
                     |> int
-                Timestamp =
-                    DateTime.Parse
-                        (postTime.CssSelect("span[class=postdetails]").Head.InnerText())
+                Timestamp = Util.ParseForumTimestamp (postTime.CssSelect("span[class=postdetails]").Head.InnerText().Trim()) timestamp
                 UserId    = user.Id
                 TopicId   = topicId
                 Title     = postBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
