@@ -2,18 +2,22 @@ module Types
 
 open System
 
-type Config = {
-    DataDir   : string
-    Verbosity : int
-    Error     : bool
-}
-
 type SourceType =
     | Index
     | Forum
     | Topic
     | Memberlist
     | Profile
+
+type Input =
+    | Directory of string
+    | File of SourceType * string
+
+type Config = {
+    Input     : Input option
+    Verbosity : int
+    Error     : bool
+}
 
 type User = {
     Id         : int

@@ -9,7 +9,7 @@ open FSharp.Data.HtmlActivePatterns
 open Types
 open Collections
 
-module User =
+module Profile =
     let IdFromLink (link : HtmlNode) =
         Util.NumericQueryField link "u"
 
@@ -99,7 +99,7 @@ module Memberlist =
             let cols = row.CssSelect("td")
             let user = cols.[1].CssSelect("a[href^='profile.php']").Head
 
-            let id, name = User.IdAndNameFromProfileLink user
+            let id, name = Profile.IdAndNameFromProfileLink user
 
             Users.Set config
                 {
@@ -109,13 +109,13 @@ module Memberlist =
                     CustomRank = ""
                     JoinDate   = DateTime.Parse(cols.[5].InnerText())
                     PostCount  = Int32.Parse(cols.[2].InnerText())
-                    CanEmail   = User.CanEmail cols.[3]
+                    CanEmail   = Profile.CanEmail cols.[3]
                     Avatar     = None
                     Location   =
                         match cols.[4].InnerText().Trim() with
                         | "" -> None
                         | str -> Some str
-                    Homepage   = User.Homepage cols.[7]
+                    Homepage   = Profile.Homepage cols.[7]
                     Occupation = None
                     Interests  = None
                     XboxTag    = None
@@ -307,7 +307,7 @@ module Post =
             // Existing user
             if not profileLink.IsEmpty then
                 {
-                    Id   = User.IdFromLink (userLinks.CssSelect("a[href^='profile.php']").Head)
+                    Id   = Profile.IdFromLink (userLinks.CssSelect("a[href^='profile.php']").Head)
                     Name = name
                     Rank =
                         match userDetails.CssSelect("span[class=postdetails] > img") with
@@ -324,7 +324,7 @@ module Post =
                     PostCount =
                         Regex.Match(postDetails, @"Posts: (\d+)").Groups.[1].Value
                         |> int
-                    CanEmail = User.CanEmail userLinks
+                    CanEmail = Profile.CanEmail userLinks
                     Location =
                         let locationMatch = Regex.Match(postDetails, @"Location: (.*)\n")
                         match locationMatch.Success with
@@ -332,17 +332,17 @@ module Post =
                         | false -> None
                     Occupation = None
                     Interests = None
-                    Homepage = User.Homepage userLinks
+                    Homepage = Profile.Homepage userLinks
                     XboxTag =
                         let xblDetails = userDetails.CssSelect("div[class=postdetails]").Head.InnerText()
                         let xblMatch = Regex.Match(xblDetails, @"^XboxLiveGamertag:\n(.+)$")
                         match xblMatch.Success with
                         | true -> Some xblMatch.Groups.[1].Value
                         | false -> None
-                    AIM = User.AIM userLinks
-                    YM = User.YM userLinks
+                    AIM = Profile.AIM userLinks
+                    YM = Profile.YM userLinks
                     MSN = None
-                    ICQ = User.ICQ userLinks
+                    ICQ = Profile.ICQ userLinks
                     Signature = signature
                     Sources = Map.empty.Add(SourceType.Topic, timestamp)
                 }
@@ -444,7 +444,7 @@ module Forum =
         let moderators =
             doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.gensmallwhite > a[href^='profile.php?mode=viewprofile']")
             |> List.map (fun m ->
-                let id, name = User.IdAndNameFromProfileLink(m)
+                let id, name = Profile.IdAndNameFromProfileLink(m)
                 User.Stub id name "Moderator" timestamp
             )
         moderators |> List.iter (fun m -> Users.Set config m)
@@ -470,7 +470,7 @@ module Forum =
             let authorId, authorName, authorRank =
                 // Existing user
                 if not authorLink.IsEmpty then
-                    let id, name = User.IdAndNameFromProfileLink(authorLink.Head)
+                    let id, name = Profile.IdAndNameFromProfileLink(authorLink.Head)
                     id, name, "User"
                 // Guest (deleted)
                 else
@@ -485,7 +485,7 @@ module Forum =
             let lastPosterId, lastPosterName, lastPosterRank =
                 // Existing user
                 if not lastPosterLink.IsEmpty then
-                    let id, name = User.IdAndNameFromProfileLink(lastPosterLink.Head)
+                    let id, name = Profile.IdAndNameFromProfileLink(lastPosterLink.Head)
                     id, name, "User"
                 // Guest (deleted)
                 else
@@ -513,12 +513,12 @@ module Forum =
                 }
         )
 
-module IndexParser =
+module Index =
     let Parse (config : Config) (filename : string) =
         let doc, timestamp = Util.ReadFile config filename
 
         // Newest registered user.
-        let newestId, newestName = User.IdAndNameFromProfileLink(doc.CssSelect("span.gensmallwhite > strong > a[href^='profile.php?mode=viewprofile']").Head)
+        let newestId, newestName = Profile.IdAndNameFromProfileLink(doc.CssSelect("span.gensmallwhite > strong > a[href^='profile.php?mode=viewprofile']").Head)
         Users.Set config (User.Stub newestId newestName "User" timestamp)
 
         // Find forum rows in index page table.
@@ -526,14 +526,14 @@ module IndexParser =
         |> List.filter (fun row -> not (row.CssSelect("td.row1[width='100%']").IsEmpty))
         |> List.iteri(fun i row ->
                 // Last posting user.
-                let lastPosterId, lastPosterName = User.IdAndNameFromProfileLink(row.CssSelect("td.row2").[2].CssSelect("a[href^='profile.php?mode=viewprofile']").Head)
+                let lastPosterId, lastPosterName = Profile.IdAndNameFromProfileLink(row.CssSelect("td.row2").[2].CssSelect("a[href^='profile.php?mode=viewprofile']").Head)
                 Users.Set config (User.Stub lastPosterId lastPosterName "User" timestamp)
 
                 // Moderators.
                 let moderators =
                     row.CssSelect("td.row2").[3].CssSelect("a[href^='profile.php?mode=viewprofile']")
                     |> List.map (fun m ->
-                        let id, name = User.IdAndNameFromProfileLink(m)
+                        let id, name = Profile.IdAndNameFromProfileLink(m)
                         User.Stub id name "Moderator" timestamp
                     )
                 moderators |> List.iter (fun m -> Users.Set config m)

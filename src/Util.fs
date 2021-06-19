@@ -11,15 +11,28 @@ let rec ParseArgs argv (config : Config) =
     match argv with
     | "-v"::xs -> ParseArgs xs { config with Verbosity = config.Verbosity + 1 }
     | "-q"::xs -> ParseArgs xs { config with Verbosity = 0 }
+    | "-f"::xs ->
+        // Set file input or error if input has already been set.
+        match xs with
+        | typ::file::xss ->
+            match typ.ToLower() with
+            | "index"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Index,      file)) }
+            | "forum"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Forum,      file)) }
+            | "topic"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Topic,      file)) }
+            | "memberlist" -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Memberlist, file)) }
+            | "profile"    -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Profile,    file)) }
+            | _ -> { config with Error = true }
+        | _ -> { config with Error = true }
+    | "-?"::xs -> { config with Error = true }
     | str::xs ->
-        // Set DataDir or error if it already has been set.
-        match config.DataDir with
-        | "" -> ParseArgs xs { config with DataDir = str }
+        // Set directory input or error if input has already been set.
+        match config.Input with
+        | None -> ParseArgs xs { config with Input = Some (Input.Directory str) }
         | _ -> { config with Error = true }
     | [] ->
-        // Reached end. Error if DataDir weren't set.
-        match config.DataDir with
-        | "" -> { config with Error = true }
+        // Reached end. Error if input wasn't set.
+        match config.Input with
+        | None -> { config with Error = true }
         | _ -> config
 
 // Read file into HtmlDocument with timestamp.
