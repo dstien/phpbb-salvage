@@ -13,14 +13,17 @@ let rec ParseArgs argv (config : Config) =
     | "-q"::xs -> ParseArgs xs { config with Verbosity = 0 }
     | "-f"::xs ->
         // Set file input or error if input has already been set.
-        match xs with
-        | typ::file::xss ->
-            match typ.ToLower() with
-            | "index"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Index,      file)) }
-            | "forum"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Forum,      file)) }
-            | "topic"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Topic,      file)) }
-            | "memberlist" -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Memberlist, file)) }
-            | "profile"    -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Profile,    file)) }
+        match config.Input with
+        | None ->
+            match xs with
+            | typ::file::xss ->
+                match typ.ToLower() with
+                | "index"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Index,      file)) }
+                | "forum"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Forum,      file)) }
+                | "topic"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Topic,      file)) }
+                | "memberlist" -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Memberlist, file)) }
+                | "profile"    -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Profile,    file)) }
+                | _ -> { config with Error = true }
             | _ -> { config with Error = true }
         | _ -> { config with Error = true }
     | "-?"::xs -> { config with Error = true }
