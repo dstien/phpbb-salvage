@@ -10,37 +10,46 @@ open Types
 open Collections
 
 module Profile =
+    let LinkSelector = "a[href^='profile.php?mode=viewprofile']"
+
     let IdFromLink (link : HtmlNode) =
         Util.NumericQueryField link "u"
 
     let IdAndNameFromProfileLink (link : HtmlNode) =
         IdFromLink link, link.InnerText()
 
-    let idFromPrivMsgLink (doc : HtmlDocument) = IdFromLink(doc.CssSelect("a[href^='privmsg']").Head)
-    let nameFromAuthorSearch (doc : HtmlDocument) = Regex.Match(doc.CssSelect("a[href^='search\.php\?search_author']").Head.AttributeValue("href"), @"author=(.+)").Groups.[1].Value
-    let customRank (doc : HtmlDocument) = doc.CssSelect("span.postdetails").Head.InnerText().Trim()
+    let UserStubFromProfileLink (link : HtmlNode) (rank : string) (ctx : Context) =
+        let id, name = IdAndNameFromProfileLink link
+        Users.Set (User.Stub id name rank ctx.Timestamp) ctx
 
-    let avatar (doc : HtmlDocument) =
-        match doc.CssSelect("table.forumline > tr > td.row1 > img") with
+    let UserStubFromProfileLinkSelector (node : HtmlNode) (selector : string) (rank : string) (ctx : Context) =
+        UserStubFromProfileLink (node.CssSelect(selector + LinkSelector).Head) rank ctx
+
+    let idFromPrivMsgLink (node : HtmlNode) = IdFromLink(node.CssSelect("a[href^='privmsg']").Head)
+    let nameFromAuthorSearch (node : HtmlNode) = Regex.Match(node.CssSelect("a[href^='search\.php\?search_author']").Head.AttributeValue("href"), @"author=(.+)").Groups.[1].Value
+    let customRank (node : HtmlNode) = node.CssSelect("span.postdetails").Head.InnerText().Trim()
+
+    let avatar (node : HtmlNode) =
+        match node.CssSelect("table.forumline > tr > td.row1 > img") with
         | img::_ -> Some (img.AttributeValue("src"))
         | [] -> None
 
-    let findRow (doc : HtmlDocument) name =
+    let findRow (node : HtmlNode) name =
         (
-            doc.CssSelect("table.forumline > tr > td.row1 > table > tr")
+            node.CssSelect("table.forumline > tr > td.row1 > table > tr")
             |> List.filter (fun row -> row.InnerText().StartsWith(name + ":"))
         ).Head
 
-    let findField (doc : HtmlDocument) name =
-        (findRow doc name).CssSelect("td span.gen").[1].InnerText().Trim()
+    let findField (node : HtmlNode) name =
+        (findRow node name).CssSelect("td span.gen").[1].InnerText().Trim()
 
-    let findOptionalField (doc : HtmlDocument) name =
-        match findField doc name with
+    let findOptionalField (node : HtmlNode) name =
+        match findField node name with
         | "" -> None
         | str -> Some str
 
-    let joined (doc : HtmlDocument) = DateTime.Parse(findField doc "Joined")
-    let postCount (doc : HtmlDocument) = Int32.Parse((findField doc "Total posts").Split(' ').[0])
+    let joined (node : HtmlNode) = DateTime.Parse(findField node "Joined")
+    let postCount (node : HtmlNode) = Int32.Parse((findField node "Total posts").Split(' ').[0])
     let CanEmail (node : HtmlNode) =
         match node.CssSelect("a[href^='profile.php?mode=email']") with
         | _::_ -> true
@@ -62,73 +71,81 @@ module Profile =
         | a::_ -> Some (Regex.Match(a.AttributeValue("href"), @"\?to=(\d+)$").Groups.[1].Value)
         | [] -> None
 
-    let Parse (config : Config) (filename : string) =
-        let doc, timestamp = Util.ReadFile config filename
-
-        if not (doc.CssSelect("a[href^='privmsg']").IsEmpty) then
-            Users.Set config
+    let Parse (ctx : Context) =
+        match (ctx.Html.CssSelect("a[href^='privmsg']").IsEmpty) with
+        | true -> ctx
+        | false ->
+            Users.Set
                 {
-                    Id         = idFromPrivMsgLink doc
-                    Name       = nameFromAuthorSearch doc
+                    Id         = idFromPrivMsgLink ctx.Html
+                    Name       = nameFromAuthorSearch ctx.Html
                     Rank       = "User"
-                    CustomRank = customRank doc
-                    JoinDate   = joined doc
-                    PostCount  = postCount doc
-                    CanEmail   = CanEmail (findRow doc "E-mail address")
-                    Avatar     = avatar doc
-                    Location   = findOptionalField doc "Location"
-                    Homepage   = findOptionalField doc "Website"
-                    Occupation = findOptionalField doc "Occupation"
-                    Interests  = findOptionalField doc "Interests"
-                    XboxTag    = findOptionalField doc "XboxLiveGamertag"
-                    AIM        = AIM (findRow doc "AIM Address")
-                    YM         = YM (findRow doc "Yahoo Messenger")
-                    MSN        = findOptionalField doc "MSN Messenger"
-                    ICQ        = ICQ (findRow doc "ICQ Number")
+                    CustomRank = customRank ctx.Html
+                    JoinDate   = joined ctx.Html
+                    PostCount  = postCount ctx.Html
+                    CanEmail   = CanEmail (findRow ctx.Html "E-mail address")
+                    Avatar     = avatar ctx.Html
+                    Location   = findOptionalField ctx.Html "Location"
+                    Homepage   = findOptionalField ctx.Html "Website"
+                    Occupation = findOptionalField ctx.Html "Occupation"
+                    Interests  = findOptionalField ctx.Html "Interests"
+                    XboxTag    = findOptionalField ctx.Html "XboxLiveGamertag"
+                    AIM        = AIM (findRow ctx.Html "AIM Address")
+                    YM         = YM (findRow ctx.Html "Yahoo Messenger")
+                    MSN        = findOptionalField ctx.Html "MSN Messenger"
+                    ICQ        = ICQ (findRow ctx.Html "ICQ Number")
                     Signature  = None
-                    Sources    = Map.empty.Add(SourceType.Profile, timestamp)
+                    Sources    = Map.empty.Add(SourceType.Profile, ctx.Timestamp)
                 }
+                ctx
 
 module Memberlist =
-    let Parse (config : Config) (filename : string) =
-        let doc, timestamp = Util.ReadFile config filename
+    let internal userRow (row : HtmlNode) (ctx : Context) =
+        let cols = row.CssSelect("td")
+        let user = cols.[1].CssSelect("a[href^='profile.php']").Head
 
-        doc.CssSelect("form > table.forumline > tr").Tail
+        let id, name = Profile.IdAndNameFromProfileLink user
+
+        Users.Set
+            {
+                Id         = id
+                Name       = name
+                Rank       = "User"
+                CustomRank = ""
+                JoinDate   = DateTime.Parse(cols.[5].InnerText())
+                PostCount  = Int32.Parse(cols.[2].InnerText())
+                CanEmail   = Profile.CanEmail cols.[3]
+                Avatar     = None
+                Location   =
+                    match cols.[4].InnerText().Trim() with
+                    | "" -> None
+                    | str -> Some str
+                Homepage   = Profile.Homepage cols.[7]
+                Occupation = None
+                Interests  = None
+                XboxTag    = None
+                AIM        = None
+                YM         = None
+                MSN        = None
+                ICQ        = None
+                Signature  = None
+                Sources    = Map.empty.Add(SourceType.Memberlist, ctx.Timestamp)
+            }
+            ctx
+
+    let Parse (ctx : Context) =
+        ctx.Html.CssSelect("form > table.forumline > tr").Tail
         |> List.filter(fun row -> not (row.CssSelect("td[class^='row'] a[href^='profile.php']").IsEmpty))
-        |> List.iter(fun row ->
-            let cols = row.CssSelect("td")
-            let user = cols.[1].CssSelect("a[href^='profile.php']").Head
-
-            let id, name = Profile.IdAndNameFromProfileLink user
-
-            Users.Set config
-                {
-                    Id         = id
-                    Name       = name
-                    Rank       = "User"
-                    CustomRank = ""
-                    JoinDate   = DateTime.Parse(cols.[5].InnerText())
-                    PostCount  = Int32.Parse(cols.[2].InnerText())
-                    CanEmail   = Profile.CanEmail cols.[3]
-                    Avatar     = None
-                    Location   =
-                        match cols.[4].InnerText().Trim() with
-                        | "" -> None
-                        | str -> Some str
-                    Homepage   = Profile.Homepage cols.[7]
-                    Occupation = None
-                    Interests  = None
-                    XboxTag    = None
-                    AIM        = None
-                    YM         = None
-                    MSN        = None
-                    ICQ        = None
-                    Signature  = None
-                    Sources    = Map.empty.Add(SourceType.Memberlist, timestamp)
-                }
-        )
+        |> List.fold (fun ctx' row -> userRow row ctx') ctx
 
 module Post =
+    type Nodes = {
+        UserDetails : HtmlNode
+        UserLinks   : HtmlNode
+        PostTime    : HtmlNode
+        PostBody    : HtmlNode
+    }
+
     module Body =
         // Translate post body HTML to use BBCode while accounting for soup of nested and unclosed tags.
         // 1. Replace HTML tags with their BBCode equivalent in the document tree.
@@ -249,7 +266,6 @@ module Post =
                         append name
                         if not attributes.IsEmpty then
                             append "="
-                            // TODO: Check what happens if an attribute contains special characters.
                             append (attributes.Head.Value())
 
                         append "]"
@@ -276,6 +292,7 @@ module Post =
             let post = body.Split("\n_________________\n")
             (post.[0], if post.Length > 1 then Some post.[1] else None)
 
+        // Parse post, return body and signature.
         let Parse (doc : HtmlNode) =
             let translated = translateNodes([ doc ]).Head
             let fulltext = bbtext(translated)
@@ -294,77 +311,78 @@ module Post =
         else
             None
 
-    let Parse (config : Config) (topicId : int) (userDetails : HtmlNode) (userLinks : HtmlNode) (postTime : HtmlNode) (postBody : HtmlNode) (timestamp : DateTime) =
-        let postDetails = userDetails.CssSelect("span[class=postdetails]").Head.InnerText()
-        let postBodyContent = postBody.CssSelect("td[colspan=2]").[1]
+    let Parse (topicId : int) (nodes : Nodes) (ctx : Context) =
+        let postDetails = nodes.UserDetails.CssSelect("span[class=postdetails]").Head.InnerText()
+        let postBodyContent = nodes.PostBody.CssSelect("td[colspan=2]").[1]
         let content, signature = Body.Parse(postBodyContent)
 
         let user =
-            let profileLink = userLinks.CssSelect("a[href^='profile.php']")
-            let name = userDetails.CssSelect("span[class=name] b").Head.InnerText()
+            let profileLink = nodes.UserLinks.CssSelect("a[href^='profile.php']")
+            let name = nodes.UserDetails.CssSelect("span[class=name] b").Head.InnerText()
             let customRank = Regex.Match(postDetails, @"^(.*)\n").Groups.[1].Value
 
+            match profileLink.IsEmpty with
+            // Guest (deleted)
+            | true -> User.Stub (Users.GuestUserId name ctx) name customRank ctx.Timestamp
             // Existing user
-            if not profileLink.IsEmpty then
+            | false ->
                 {
-                    Id   = Profile.IdFromLink (userLinks.CssSelect("a[href^='profile.php']").Head)
-                    Name = name
-                    Rank =
-                        match userDetails.CssSelect("span[class=postdetails] > img") with
+                    Id         = Profile.IdFromLink (nodes.UserLinks.CssSelect(Profile.LinkSelector).Head)
+                    Name       = name
+                    Rank       =
+                        match nodes.UserDetails.CssSelect("span[class=postdetails] > img") with
                         | img::_ -> (img.AttributeValue("alt"))
                         | [] -> "User"
                     CustomRank = customRank
-                    JoinDate =
+                    JoinDate   =
                         DateTime.Parse
                             (Regex.Match(postDetails, @"Joined: (\d{1,2} \w{3} \d{4})\n").Groups.[1].Value)
-                    Avatar =
-                        match userDetails.CssSelect("span[class=postdetails] > div > img") with
+                    Avatar     =
+                        match nodes.UserDetails.CssSelect("span[class=postdetails] > div > img") with
                         | img::_ -> Some (img.AttributeValue("src"))
                         | [] -> None
-                    PostCount =
+                    PostCount  =
                         Regex.Match(postDetails, @"Posts: (\d+)").Groups.[1].Value
                         |> int
-                    CanEmail = Profile.CanEmail userLinks
-                    Location =
+                    CanEmail   = Profile.CanEmail nodes.UserLinks
+                    Location   =
                         let locationMatch = Regex.Match(postDetails, @"Location: (.*)\n")
+
                         match locationMatch.Success with
                         | true -> Some locationMatch.Groups.[1].Value
                         | false -> None
                     Occupation = None
-                    Interests = None
-                    Homepage = Profile.Homepage userLinks
-                    XboxTag =
-                        let xblDetails = userDetails.CssSelect("div[class=postdetails]").Head.InnerText()
+                    Interests  = None
+                    Homepage   = Profile.Homepage nodes.UserLinks
+                    XboxTag    =
+                        let xblDetails = nodes.UserDetails.CssSelect("div[class=postdetails]").Head.InnerText()
                         let xblMatch = Regex.Match(xblDetails, @"^XboxLiveGamertag:\n(.+)$")
                         match xblMatch.Success with
                         | true -> Some xblMatch.Groups.[1].Value
                         | false -> None
-                    AIM = Profile.AIM userLinks
-                    YM = Profile.YM userLinks
-                    MSN = None
-                    ICQ = Profile.ICQ userLinks
-                    Signature = signature
-                    Sources = Map.empty.Add(SourceType.Topic, timestamp)
+                    AIM        = Profile.AIM nodes.UserLinks
+                    YM         = Profile.YM nodes.UserLinks
+                    MSN        = None
+                    ICQ        = Profile.ICQ nodes.UserLinks
+                    Signature  = signature
+                    Sources    = Map.empty.Add(SourceType.Topic, ctx.Timestamp)
                 }
-            // Guest (deleted)
-            else
-                User.Stub (Users.GuestUserId name) name customRank timestamp
 
-        Users.Set config user
-
-        Posts.Set config
+        let post =
             {
-                Id        =
-                    userDetails.CssSelect("a").Head.AttributeValue("name")
-                    |> int
-                Timestamp = Util.ParseForumTimestamp (postTime.CssSelect("span[class=postdetails]").Head.InnerText().Trim()) timestamp
+                Id        = nodes.UserDetails.CssSelect("a").Head.AttributeValue("name") |> int
+                Timestamp = Util.ParseForumTimestamp (nodes.PostTime.CssSelect("span[class=postdetails]").Head.InnerText().Trim()) ctx.Timestamp
                 UserId    = user.Id
                 TopicId   = topicId
-                Title     = postBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
+                Title     = nodes.PostBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
                 Content   = content
                 Edited    = ParseEditDetails postBodyContent
-                Sources   = Map.empty.Add(SourceType.Topic, timestamp)
+                Sources   = Map.empty.Add(SourceType.Topic, ctx.Timestamp)
             }
+
+        ctx
+        |> Users.Set user
+        |> Posts.Set post
 
 module Topic =
     let idFromLink (link : HtmlNode) =
@@ -374,8 +392,8 @@ module Topic =
         idFromLink link, link.InnerText()
 
     // Parse poll question, options and results.
-    let parsePoll (doc : HtmlDocument) =
-        let table = doc.CssSelect("table.forumline > tr > td[class=row2] > table[align=center]")
+    let parsePoll (node : HtmlNode) =
+        let table = node.CssSelect("table.forumline > tr > td[class=row2] > table[align=center]")
         if not table.IsEmpty then
             let header = table.Head.CssSelect("tr > td[colspan=4] > span[class=gen] > b")
             let options = table.Head.CssSelect("tr > td[align=center] > table > tr")
@@ -394,20 +412,17 @@ module Topic =
         else
             None
 
-    let Parse (config : Config) (filename : string) =
-        let doc, timestamp = Util.ReadFile config filename
+    let Parse (ctx : Context) =
+        let forumLink = ctx.Html.CssSelect("head > link[rel=up]")
 
-        let forumLink = doc.CssSelect("head > link[rel=up]")
-
-        if not forumLink.IsEmpty then
-            let forum =
-                Forum.Stub (Util.NumericQueryField forumLink.Head "f") (forumLink.Head.AttributeValue("title")) timestamp
-
-            Forums.Set config forum
+        match forumLink.IsEmpty with
+        | true -> ctx
+        | false ->
+            let forum = Forum.Stub (Util.NumericQueryField forumLink.Head "f") (forumLink.Head.AttributeValue("title")) ctx.Timestamp
 
             let topic =
-                let id, title = IdAndTitleFromTopicLink(doc.CssSelect("a.cattitlewhite").[2])
-                let locked = not (doc.CssSelect("table.forumline > tr > th img[alt^='This topic is locked']").IsEmpty)
+                let id, title = IdAndTitleFromTopicLink(ctx.Html.CssSelect("a.cattitlewhite").[2])
+                let locked = not (ctx.Html.CssSelect("table.forumline > tr > th img[alt^='This topic is locked']").IsEmpty)
                 {
                     Id           = id
                     ForumId      = forum.Id
@@ -416,138 +431,168 @@ module Topic =
                     Locked       = locked
                     Announcement = false
                     Sticky       = false
-                    Poll         = parsePoll doc
+                    Poll         = parsePoll ctx.Html
                     Replies      = -1
                     Views        = -1
-                    Sources      = Map.empty.Add(SourceType.Topic, timestamp)
+                    Sources      = Map.empty.Add(SourceType.Topic, ctx.Timestamp)
                 }
 
-            Topics.Set config topic
+            let userDetails = ctx.Html.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
+            let postBody    = ctx.Html.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
+            let postTime    = ctx.Html.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
+            let userLinks   = ctx.Html.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
 
-            let userDetails = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][align='left']")
-            let postBody    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='top'][width='100%']")
-            let postTime    = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='middle'][align='left']")
-            let userLinks   = doc.CssSelect("table.forumline > tr > td[class^='row'][valign='bottom'][width='100%']")
-
-            if config.Verbosity > 2 then
+            if ctx.Config.Verbosity > 2 then
                 printfn "    userDetails.Length = %i postBody.Length = %i postBody.Length = %i userLinks.Length = %i" userDetails.Length postBody.Length postTime.Length userLinks.Length
 
-            for i in [0..userDetails.Length-1] do
-                Post.Parse config topic.Id userDetails.[i] userLinks.[i] postTime.[i] postBody.[i] timestamp
-                |> ignore
+            let postNodes = [
+                for i in [0..userDetails.Length-1] do
+                    yield {
+                        Post.Nodes.UserDetails = userDetails.[i]
+                        Post.Nodes.UserLinks   = userLinks.[i]
+                        Post.Nodes.PostTime    = postTime.[i]
+                        Post.Nodes.PostBody    = postBody.[i]
+                    }
+            ]
+
+            ctx
+            |> Forums.Set forum
+            |> Topics.Set topic
+            |> (fun ctx ->
+                (
+                    postNodes
+                    |> List.fold(fun ctx' nodes -> Post.Parse forum.Id nodes ctx') ctx)
+                )
 
 module Forum =
-    let Parse (config : Config) (filename : string) =
-        let doc, timestamp = Util.ReadFile config filename
+    // Topic rows in forum table.
+    let internal topicRow (row : HtmlNode) (forum : Forum) (ctx : Context) =
+        let id, title = Topic.IdAndTitleFromTopicLink(row.CssSelect("a.topictitle").Head)
+        let locked = not (row.CssSelect("td.row1 > img[alt^='This topic is locked']").IsEmpty)
+        let flags = row.CssSelect("span.topictitle > b")
+        let hasFlag (flag : string) = flags |> List.exists(fun f -> f.InnerText().Contains(flag))
 
+        // Topic author.
+        let authorLink = row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']")
+        let authorId, authorName, authorRank =
+            // Existing user
+            if not authorLink.IsEmpty then
+                let id, name = Profile.IdAndNameFromProfileLink(authorLink.Head)
+                id, name, "User"
+            // Guest (deleted)
+            else
+                let name = row.CssSelect("td.row3").Head.InnerText().Trim()
+                let id = Users.GuestUserId name ctx
+                id, name, "Guest"
+
+        // Last posting user.
+        let lastPosterLink = row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']")
+        let lastPosterId, lastPosterName, lastPosterRank =
+            // Existing user
+            if not lastPosterLink.IsEmpty then
+                let id, name = Profile.IdAndNameFromProfileLink(lastPosterLink.Head)
+                id, name, "User"
+            // Guest (deleted)
+            else
+                let name = Regex.Match(row.CssSelect("td.row2").[1].InnerText().Trim(), @"\s(\S+)$").Groups.[1].Value
+                let id = Users.GuestUserId name ctx
+                id, name, "Guest"
+
+        ctx
+        |> Users.Set (User.Stub authorId authorName authorRank ctx.Timestamp)
+        |> Users.Set (User.Stub lastPosterId lastPosterName lastPosterRank ctx.Timestamp)
+        |> Topics.Set
+            {
+                Id           = id
+                ForumId      = forum.Id
+                UserId       = authorId
+                Title        = title
+                Locked       = locked
+                Announcement = hasFlag "Announcement"
+                Sticky       = hasFlag "Sticky"
+                Poll         =
+                    match (hasFlag "Poll") with
+                    | true -> Some { Question = ""; Options = []; Votes = 0 }
+                    | false -> None
+                Replies      = Int32.Parse(row.CssSelect("td.row2 > span.viewforumdetails").Head.InnerText())
+                Views        = Int32.Parse(row.CssSelect("td.row3Right > span.viewforumdetails").Head.InnerText())
+                Sources      = Map.empty.Add(SourceType.Forum, ctx.Timestamp)
+            }
+
+    // Find and parse topics.
+    let internal topicList (forum : Forum) (ctx : Context) =
+        ctx.Html.CssSelect("form > table.forumline > tr").Tail
+        |> List.filter(fun row -> not (row.CssSelect("td.row1 a[href^='viewtopic.php']").IsEmpty))
+        |> List.fold(fun ctx' row -> topicRow row forum ctx') ctx
+
+    let Parse (ctx : Context) =
         // Moderators.
         let moderators =
-            doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.gensmallwhite > a[href^='profile.php?mode=viewprofile']")
+            ctx.Html.CssSelect("form > table[align=center] > tr > td[align=left] > span.gensmallwhite > a[href^='profile.php?mode=viewprofile']")
             |> List.map (fun m ->
                 let id, name = Profile.IdAndNameFromProfileLink(m)
-                User.Stub id name "Moderator" timestamp
+                User.Stub id name "Moderator" ctx.Timestamp
             )
-        moderators |> List.iter (fun m -> Users.Set config m)
 
         // Current forum.
         let forum =
-            let l = doc.CssSelect("form > table[align=center] > tr > td[align=left] > span.cattitlewhite > a.cattitlewhite[href^='viewforum.php']").Head
-            let f = Forum.Stub (Util.NumericQueryField l "f") (l.InnerText()) timestamp
+            let l = ctx.Html.CssSelect("form > table[align=center] > tr > td[align=left] > span.cattitlewhite > a.cattitlewhite[href^='viewforum.php']").Head
+            let f = Forum.Stub (Util.NumericQueryField l "f") (l.InnerText()) ctx.Timestamp
             { f with Moderators = moderators |> List.map (fun m -> m.Id) }
-        Forums.Set config forum
 
-        // Topic rows in forum table.
-        doc.CssSelect("form > table.forumline > tr").Tail
-        |> List.filter(fun row -> not (row.CssSelect("td.row1 a[href^='viewtopic.php']").IsEmpty))
-        |> List.iter(fun row ->
-            let id, title = Topic.IdAndTitleFromTopicLink(row.CssSelect("a.topictitle").Head)
-            let locked = not (row.CssSelect("td.row1 > img[alt^='This topic is locked']").IsEmpty)
-            let flags = row.CssSelect("span.topictitle > b")
-            let hasFlag (flag : string) = not (flags |> List.filter(fun f -> f.InnerText().Contains(flag)) |> List.isEmpty)
-
-            // Topic author.
-            let authorLink = row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']")
-            let authorId, authorName, authorRank =
-                // Existing user
-                if not authorLink.IsEmpty then
-                    let id, name = Profile.IdAndNameFromProfileLink(authorLink.Head)
-                    id, name, "User"
-                // Guest (deleted)
-                else
-                    let name = row.CssSelect("td.row3").Head.InnerText().Trim()
-                    let id = Users.GuestUserId name
-                    id, name, "Guest"
-
-            Users.Set config (User.Stub authorId authorName authorRank timestamp)
-
-            // Last posting user.
-            let lastPosterLink = row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']")
-            let lastPosterId, lastPosterName, lastPosterRank =
-                // Existing user
-                if not lastPosterLink.IsEmpty then
-                    let id, name = Profile.IdAndNameFromProfileLink(lastPosterLink.Head)
-                    id, name, "User"
-                // Guest (deleted)
-                else
-                    let name = Regex.Match(row.CssSelect("td.row2").[1].InnerText().Trim(), @"\s(\S+)$").Groups.[1].Value
-                    let id = Users.GuestUserId name
-                    id, name, "Guest"
-            Users.Set config (User.Stub lastPosterId lastPosterName lastPosterRank timestamp)
-
-            Topics.Set config
-                {
-                    Id           = id
-                    ForumId      = forum.Id
-                    UserId       = authorId
-                    Title        = title
-                    Locked       = locked
-                    Announcement = hasFlag "Announcement"
-                    Sticky       = hasFlag "Sticky"
-                    Poll         =
-                        match (hasFlag "Poll") with
-                        | true -> Some { Question = ""; Options = []; Votes = 0 }
-                        | false -> None
-                    Replies      = Int32.Parse(row.CssSelect("td.row2 > span.viewforumdetails").Head.InnerText())
-                    Views        = Int32.Parse(row.CssSelect("td.row3Right > span.viewforumdetails").Head.InnerText())
-                    Sources      = Map.empty.Add(SourceType.Forum, timestamp)
-                }
-        )
+        ctx
+        |> Users.SetList moderators
+        |> Forums.Set forum
+        |> topicList forum
 
 module Index =
-    let Parse (config : Config) (filename : string) =
-        let doc, timestamp = Util.ReadFile config filename
+    // Newest registered user.
+    let internal newestUser (ctx : Context) =
+        Profile.UserStubFromProfileLinkSelector ctx.Html "span.gensmallwhite > strong > " "User" ctx
 
-        // Newest registered user.
-        let newestId, newestName = Profile.IdAndNameFromProfileLink(doc.CssSelect("span.gensmallwhite > strong > a[href^='profile.php?mode=viewprofile']").Head)
-        Users.Set config (User.Stub newestId newestName "User" timestamp)
+    // Last posting user.
+    let internal lastUser (node : HtmlNode) (ctx : Context) =
+        Profile.UserStubFromProfileLinkSelector (node.CssSelect("td.row2").[2]) "" "User" ctx
 
-        // Find forum rows in index page table.
-        doc.CssSelect("table.forumline > tr")
-        |> List.filter (fun row -> not (row.CssSelect("td.row1[width='100%']").IsEmpty))
-        |> List.iteri(fun i row ->
-                // Last posting user.
-                let lastPosterId, lastPosterName = Profile.IdAndNameFromProfileLink(row.CssSelect("td.row2").[2].CssSelect("a[href^='profile.php?mode=viewprofile']").Head)
-                Users.Set config (User.Stub lastPosterId lastPosterName "User" timestamp)
+    // Forum record.
+    let internal forum (row : HtmlNode) (index : int) (moderators : User list) (ctx : Context) =
+        let forumLink = row.CssSelect("td.row1 > span.forumlink > a.forumlink").Head
 
-                // Moderators.
-                let moderators =
-                    row.CssSelect("td.row2").[3].CssSelect("a[href^='profile.php?mode=viewprofile']")
-                    |> List.map (fun m ->
-                        let id, name = Profile.IdAndNameFromProfileLink(m)
-                        User.Stub id name "Moderator" timestamp
-                    )
-                moderators |> List.iter (fun m -> Users.Set config m)
+        Forums.Set
+            {
+                Id          = Util.NumericQueryField forumLink "f"
+                Name        = forumLink.InnerText()
+                Description = row.CssSelect("td.row1 > span.genmed").Head.InnerText().Trim()
+                Moderators  = moderators |> List.map (fun m -> m.Id)
+                Order       = index
+                TopicCount  = Int32.Parse(row.CssSelect("td.row2 > span.gensmall").[0].InnerText())
+                PostCount   = Int32.Parse(row.CssSelect("td.row2 > span.gensmall").[1].InnerText())
+                Sources     = Map.empty.Add(SourceType.Index, ctx.Timestamp)
+            }
+            ctx
 
-                let forumLink = row.CssSelect("td.row1 > span.forumlink > a.forumlink").Head
-                Forums.Set config
-                    {
-                        Id          = Util.NumericQueryField forumLink "f"
-                        Name        = forumLink.InnerText()
-                        Description = row.CssSelect("td.row1 > span.genmed").Head.InnerText().Trim()
-                        Moderators  = moderators |> List.map (fun m -> m.Id)
-                        Order       = i
-                        TopicCount  = Int32.Parse(row.CssSelect("td.row2 > span.gensmall").[0].InnerText())
-                        PostCount   = Int32.Parse(row.CssSelect("td.row2 > span.gensmall").[1].InnerText())
-                        Sources     = Map.empty.Add(SourceType.Index, timestamp)
-                    }
+    // Row in forum list.
+    let internal forumRow (row : HtmlNode) (index : int) (ctx : Context) =
+        // Moderators to be added as users and also linked to forums.
+        let moderators =
+            row.CssSelect("td.row2").[3].CssSelect(Profile.LinkSelector)
+            |> List.map (fun m ->
+                let id, name = Profile.IdAndNameFromProfileLink(m)
+                User.Stub id name "Moderator" ctx.Timestamp
             )
+
+        lastUser row ctx
+        |> Users.SetList moderators
+        |> forum row index moderators
+
+    // Find and parse rows in forum list table with index for ordering.
+    let internal forumList (ctx : Context) =
+        ctx.Html.CssSelect("table.forumline > tr")
+        |> List.filter (fun row -> not (row.CssSelect("td.row1[width='100%']").IsEmpty))
+        |> List.fold (fun (ctx', i) row -> (forumRow row i ctx'), i + 1) (ctx, 0)
+        |> fst
+
+    let Parse (ctx : Context) =
+        ctx
+        |> newestUser
+        |> forumList

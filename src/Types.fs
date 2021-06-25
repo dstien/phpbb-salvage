@@ -1,6 +1,7 @@
 module Types
 
 open System
+open FSharp.Data
 
 type SourceType =
     | Index
@@ -125,4 +126,32 @@ type Forum = {
                 TopicCount  = -1
                 PostCount   = -1
                 Sources     = Map.empty.Add(SourceType.Topic, timestamp)
+            }
+
+type Context = {
+    Config    : Config
+
+    File      : string option
+    Timestamp : DateTime
+    Html      : HtmlNode
+
+    Users     : Map<int, User>
+    Usernames : Map<string, int>
+    Posts     : Map<int, Post>
+    Topics    : Map<int, Topic>
+    Forums    : Map<int, Forum>
+} with
+    static member Init config =
+            {
+                Config    = config
+
+                File      = None
+                Timestamp = DateTime.MaxValue
+                Html      = HtmlNode.NewText ""
+
+                Users     = Map.empty
+                Usernames = Map.empty
+                Posts     = Map.empty
+                Topics    = Map.empty
+                Forums    = Map.empty
             }

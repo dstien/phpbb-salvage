@@ -1,14 +1,10 @@
 module Collections
 
 open System
-open System.Linq
-open System.Collections.Generic
 
 open Types
 
 module Users =
-    let internal dict = new SortedDictionary<int, User>()
-
     let internal merge (old: User) (new' : User) =
         let newSourceType, newSourceTime = new'.Sources |> Map.toList |> List.head
 
@@ -145,35 +141,34 @@ module Users =
                 Sources    = old.Sources.Add(newSourceType, newSourceTime)
             }
 
-    let Set (config : Config) (user : User) =
-        if config.Verbosity > 1 then
+    let Set (user : User) (ctx : Context) =
+        if ctx.Config.Verbosity > 1 then
             printfn "  Setting user %i '%s'" user.Id user.Name
 
-        if dict.ContainsKey(user.Id) then
-            dict.[user.Id] <- merge dict.[user.Id] user
-        else
-            dict.[user.Id] <- user
+        let merged =
+            match ctx.Users.TryFind user.Id with
+            | None -> user
+            | Some old  -> merge old user
 
-    let Print () =
-        printfn "Users ="
-        Util.PrintDictionary dict
+        {
+            ctx with
+                Users = ctx.Users.Add (merged.Id, merged)
+                Usernames = ctx.Usernames.Add (merged.Name, merged.Id)
+        }
 
-    let Summary () =
-        printfn "Users: %d" dict.Count
+    let SetList (users : User list) (ctx : Context) =
+        users
+        |> List.fold (fun ctx' user -> Set user ctx') ctx
 
     // Deleted users don't have a visible id. We try to look up by name and assign the first negative id if not found.
-    let GuestUserId name =
-        let user = dict.Where(fun user -> user.Value.Name = name).FirstOrDefault()
+    let GuestUserId (name : string) (ctx : Context) =
+        let rec findAvailableGuestId id = if ctx.Users.ContainsKey id then findAvailableGuestId (id - 1) else id
 
-        if user.Key = 0 then
-            let rec findAvailableGuestId id = if dict.ContainsKey id then findAvailableGuestId (id - 1) else id
-            findAvailableGuestId -1
-        else
-            user.Key
+        match ctx.Usernames.TryFind name with
+        | Some id -> id
+        | None -> findAvailableGuestId -1
 
 module Posts =
-    let internal dict = new SortedDictionary<int, Post>()
-
     let internal merge (old: Post) (new' : Post) =
         let _, newSourceTime = new'.Sources |> Map.toList |> List.head
         let previousOfAny = Util.PreviousSourceOfAny old.Sources
@@ -184,26 +179,18 @@ module Posts =
         else
             new'
 
-    let Set (config : Config) (post : Post) =
-        if config.Verbosity > 1 then
+    let Set (post : Post) (ctx : Context) =
+        if ctx.Config.Verbosity > 1 then
             printfn "  Setting post %i in topic %i by user %i" post.Id post.TopicId post.UserId
 
-        if dict.ContainsKey(post.Id) then
-            dict.[post.Id] <- merge dict.[post.Id] post
-        else
-            dict.[post.Id] <- post
+        let merged =
+            match ctx.Posts.TryFind post.Id with
+            | None -> post
+            | Some old  -> merge old post
 
-    let Print () =
-        printfn "Posts ="
-        Util.PrintDictionary dict
-
-    let Summary () =
-        printfn "Posts: %d" dict.Count
-
+        { ctx with Posts = ctx.Posts.Add (merged.Id, merged) }
 
 module Topics =
-    let internal dict = new SortedDictionary<int, Topic>()
-
     let internal merge (old: Topic) (new' : Topic) =
         let newSourceType, newSourceTime = new'.Sources |> Map.toList |> List.head
 
@@ -276,25 +263,18 @@ module Topics =
                 Sources     = old.Sources.Add(newSourceType, newSourceTime)
             }
 
-    let Set (config : Config) (topic : Topic) =
-        if config.Verbosity > 1 then
+    let Set (topic : Topic) (ctx : Context) =
+        if ctx.Config.Verbosity > 1 then
             printfn "  Setting topic %i '%s'" topic.Id topic.Title
 
-        if dict.ContainsKey(topic.Id) then
-            dict.[topic.Id] <- merge dict.[topic.Id] topic
-        else
-            dict.[topic.Id] <- topic
+        let merged =
+            match ctx.Topics.TryFind topic.Id with
+            | None -> topic
+            | Some old  -> merge old topic
 
-    let Print () =
-        printfn "Topics ="
-        Util.PrintDictionary dict
-
-    let Summary () =
-        printfn "Topics: %d" dict.Count
+        { ctx with Topics = ctx.Topics.Add (merged.Id, merged) }
 
 module Forums =
-    let internal dict = new SortedDictionary<int, Forum>()
-
     let internal merge (old: Forum) (new' : Forum) =
         let newSourceType, newSourceTime = new'.Sources |> Map.toList |> List.head
 
@@ -349,18 +329,13 @@ module Forums =
                 Sources     = old.Sources.Add(newSourceType, newSourceTime)
             }
 
-    let Set (config : Config) (forum : Forum) =
-        if config.Verbosity > 1 then
+    let Set (forum : Forum) (ctx : Context) =
+        if ctx.Config.Verbosity > 1 then
             printfn "  Setting forum %i '%s'" forum.Id forum.Name
 
-        if dict.ContainsKey(forum.Id) then
-            dict.[forum.Id] <- merge dict.[forum.Id] forum
-        else
-            dict.[forum.Id] <- forum
+        let merged =
+            match ctx.Forums.TryFind forum.Id with
+            | None -> forum
+            | Some old  -> merge old forum
 
-    let Print () =
-        printfn "Forums ="
-        Util.PrintDictionary dict
-
-    let Summary () =
-        printfn "Forums: %d" dict.Count
+        { ctx with Forums = ctx.Forums.Add (merged.Id, merged) }

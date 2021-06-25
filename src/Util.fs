@@ -38,24 +38,32 @@ let rec ParseArgs argv (config : Config) =
         | None -> { config with Error = true }
         | _ -> config
 
-// Read file into HtmlDocument with timestamp.
-let ReadFile (config : Config) (filename : string) =
-    let timestamp = IO.File.GetCreationTime(filename)
+// Read file into HtmlDocument.
+let ReadFile (ctx : Context) =
+    if ctx.Config.Verbosity > 0 then
+        printfn "Reading %s (%s)" ctx.File.Value (ctx.Timestamp.ToString())
 
     // Read entire file and remove all newlines. phpbb have inserted <br/> for every newline in post bodies which FSharp.Data substitutes back to newline.
-    let src = IO.File.ReadAllText(filename).Replace("\n", "")
+    let src = IO.File.ReadAllText(ctx.File.Value).Replace("\n", "")
     let doc = HtmlDocument.Load(new IO.StringReader(src))
 
-    if config.Verbosity > 0 then
-        printfn "Read %s (%s)" filename (timestamp.ToString())
+    { ctx with Html = doc.Html() }
 
-    (doc, timestamp)
+// Read file that hasn't been fed timestamp from directory listing.
+let ReadFileSingle (ctx : Context) =
+    ReadFile { ctx with Timestamp = IO.File.GetCreationTime(ctx.File.Value) }
 
-// Print items in a sorted dictionary one by one.
-let PrintDictionary (dict : Collections.Generic.SortedDictionary<int, 'T>) =
-    let mutable em = dict.GetEnumerator()
-    while em.MoveNext() do
-        printfn "%A" em.Current.Value
+// Print items in a Map<int, 'T> one by one.
+let PrintMap (map' : Map<int, 'T>) (label : string) =
+    printfn "%s =" label
+    for item in map' do
+        printfn "%A" item
+
+// Print summary of a Map<int, 'T>.
+let PrintMapSummary (map' : Map<int, 'T>) (label : string) =
+    let firstId = (Seq.head map').Key
+    let lastId = (map' |> Seq.rev |> Seq.head).Key
+    printfn "%s: %d (%d - %d)" label map'.Count firstId lastId
 
 // Get a numeric field value from query string.
 let NumericQueryField (link : HtmlNode) (field : string) =
@@ -77,7 +85,7 @@ let ParseForumTimestamp (text : string) (sourceTime : DateTime) =
 let PreviousSourceOfAny (sources : Map<SourceType, DateTime>) =
     sources
     |> Map.toList
-    |> List.map (fun s -> snd s)
+    |> List.map snd
     |> List.sortDescending
     |> List.head
 
@@ -86,7 +94,7 @@ let PreviousSourceOfTypes (sources : Map<SourceType, DateTime>) (types : SourceT
     sources
     |> Map.filter (fun s _ -> types |> List.contains s)
     |> Map.toList
-    |> List.map (fun s -> snd s)
+    |> List.map snd
     |> List.sortDescending
     |> List.tryHead
     |> Option.defaultValue DateTime.MinValue
