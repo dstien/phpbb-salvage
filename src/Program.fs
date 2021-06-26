@@ -42,14 +42,17 @@ let ReadDir (ctx : Context) =
 
 [<EntryPoint>]
 let main argv =
-    let config = Util.ParseArgs (List.ofArray argv) { Input = None; Verbosity = 1; Error = false }
+    let config = Util.ParseArgs (List.ofArray argv) { Input = None; Output = Terminal; Verbosity = 1; Error = false }
     let ctx = Context.Init config
 
     if config.Error || config.Input = None then
-        printfn "Usage: %s [-v] [-q] [-f sourcetype inputfile] [datadir]" AppDomain.CurrentDomain.FriendlyName
+        printfn "Usage: %s [-v] [-q] [-s outputtype outputfile] [-l inputjson] [-f sourcetype inputfile] [datadir]" AppDomain.CurrentDomain.FriendlyName
         printfn ""
-        printfn "Supply one input type: datadir or -f type file"
+        printfn "Supply one input type: datadir, -f type file or -l file"
         printfn ""
+        printfn "  -s  Save parsed data in given format of type"
+        printfn "      Terminal (default, no file), SQL or JSON"
+        printfn "  -l  Load previously parsed data from JSON"
         printfn "  -f  Single file input for given source of type"
         printfn "      Index, Forum, Topic, Memberlist or Profile"
         printfn "  -v  Increase verbosity"
@@ -59,8 +62,8 @@ let main argv =
     else
         let result =
             match config.Input.Value with
-            | Directory _ -> ReadDir ctx
-            | File (typ, file) ->
+            | Input.Directory _ -> ReadDir ctx
+            | Input.File (typ, file) ->
                 let parser =
                     match typ with
                     | SourceType.Index      -> Parsers.Index.Parse
@@ -70,6 +73,8 @@ let main argv =
                     | SourceType.Profile    -> Parsers.Profile.Parse
 
                 parser (Util.ReadFileSingle { ctx with File = Some file })
+
+            | Input.Json file -> Util.ReadJson file
 
         match config.Verbosity with
         | 0 -> ()
@@ -83,5 +88,10 @@ let main argv =
             Util.PrintMap result.Forums "Forums"
             Util.PrintMap result.Topics "Topics"
             Util.PrintMap result.Posts  "Posts"
+
+        match config.Output with
+        | Output.Terminal  -> ()
+        | Output.Sql file  -> failwith "SQL script generation not implemented."
+        | Output.Json file -> Util.SaveJson file result
 
         0

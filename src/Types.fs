@@ -13,9 +13,16 @@ type SourceType =
 type Input =
     | Directory of string
     | File of SourceType * string
+    | Json of string
+
+type Output =
+    | Terminal
+    | Sql of string
+    | Json of string
 
 type Config = {
     Input     : Input option
+    Output    : Output
     Verbosity : int
     Error     : bool
 }

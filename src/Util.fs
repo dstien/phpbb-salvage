@@ -3,11 +3,14 @@ module Util
 open System
 open System.Text.RegularExpressions
 open FSharp.Data
+open Thoth.Json.Net
 
 open Types
 
 // Parse config from command line arguments.
 let rec ParseArgs argv (config : Config) =
+    let err = { config with Error = true }
+
     match argv with
     | "-v"::xs -> ParseArgs xs { config with Verbosity = config.Verbosity + 1 }
     | "-q"::xs -> ParseArgs xs { config with Verbosity = 0 }
@@ -23,8 +26,30 @@ let rec ParseArgs argv (config : Config) =
                 | "topic"      -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Topic,      file)) }
                 | "memberlist" -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Memberlist, file)) }
                 | "profile"    -> ParseArgs xss { config with Input = Some (Input.File (SourceType.Profile,    file)) }
-                | _ -> { config with Error = true }
-            | _ -> { config with Error = true }
+                | _ -> err
+            | _ -> err
+        | _ -> err
+    | "-l"::xs ->
+        match config.Input with
+        | None ->
+            match xs with
+            | file::xss -> ParseArgs xss { config with Input = Some (Input.Json file) }
+            | _ -> err
+        | _ -> err
+    | "-s"::xs ->
+        match xs with
+        | typ::xss ->
+            match typ.ToLower() with
+            | "terminal" -> ParseArgs xss { config with Output = Terminal }
+            | "sql" ->
+                match xss with
+                | file::xsss -> ParseArgs xsss { config with Output = Output.Sql file }
+                | _ -> err
+            | "json" ->
+                match xss with
+                | file::xsss -> ParseArgs xsss { config with Output = Output.Json file }
+                | _ -> err
+            | _ -> err
         | _ -> { config with Error = true }
     | "-?"::xs -> { config with Error = true }
     | str::xs ->
@@ -37,6 +62,27 @@ let rec ParseArgs argv (config : Config) =
         match config.Input with
         | None -> { config with Error = true }
         | _ -> config
+
+// Save context to JSON for quick loading of already parsed data.
+let SaveJson (file : string) (ctx : Context) =
+    let json =
+        Encode.Auto.toString(
+            2,
+            { ctx with
+                File      = None
+                Timestamp = DateTime.MinValue
+                Html      = HtmlNode.NewText ""
+            }
+        )
+    IO.File.WriteAllText(file, json)
+
+// Read already parsed data from JSON dump.
+let ReadJson (file : string) =
+    let json = IO.File.ReadAllText(file)
+
+    match Decode.Auto.fromString<Context>(json) with
+    | Ok ctx' -> ctx'
+    | Error msg -> failwith msg
 
 // Read file into HtmlDocument.
 let ReadFile (ctx : Context) =
