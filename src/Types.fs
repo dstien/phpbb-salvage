@@ -33,6 +33,7 @@ type User = {
     Rank       : string
     CustomRank : string
     JoinDate   : DateTime
+    LastActive : DateTime
     PostCount  : int
     CanEmail   : bool
     Avatar     : string option
@@ -55,6 +56,7 @@ type User = {
             Rank       = rank
             CustomRank = ""
             JoinDate   = DateTime.MinValue
+            LastActive = DateTime.MinValue
             PostCount  = 0
             CanEmail   = false
             Avatar     = None

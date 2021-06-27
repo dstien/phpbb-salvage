@@ -48,7 +48,6 @@ module Profile =
         | "" -> None
         | str -> Some str
 
-    let joined (node : HtmlNode) = DateTime.Parse(findField node "Joined")
     let postCount (node : HtmlNode) = Int32.Parse((findField node "Total posts").Split(' ').[0])
     let CanEmail (node : HtmlNode) =
         match node.CssSelect("a[href^='profile.php?mode=email']") with
@@ -75,13 +74,16 @@ module Profile =
         match (ctx.Html.CssSelect("a[href^='privmsg']").IsEmpty) with
         | true -> ctx
         | false ->
+            let joinDate = DateTime.Parse(findField ctx.Html "Joined")
+
             Users.Set
                 {
                     Id         = idFromPrivMsgLink ctx.Html
                     Name       = nameFromAuthorSearch ctx.Html
                     Rank       = "User"
                     CustomRank = customRank ctx.Html
-                    JoinDate   = joined ctx.Html
+                    JoinDate   = joinDate
+                    LastActive = joinDate
                     PostCount  = postCount ctx.Html
                     CanEmail   = CanEmail (findRow ctx.Html "E-mail address")
                     Avatar     = avatar ctx.Html
@@ -105,6 +107,7 @@ module Memberlist =
         let user = cols.[1].CssSelect("a[href^='profile.php']").Head
 
         let id, name = Profile.IdAndNameFromProfileLink user
+        let joinDate = DateTime.Parse(cols.[5].InnerText())
 
         Users.Set
             {
@@ -112,7 +115,8 @@ module Memberlist =
                 Name       = name
                 Rank       = "User"
                 CustomRank = ""
-                JoinDate   = DateTime.Parse(cols.[5].InnerText())
+                JoinDate   = joinDate
+                LastActive = joinDate
                 PostCount  = Int32.Parse(cols.[2].InnerText())
                 CanEmail   = Profile.CanEmail cols.[3]
                 Avatar     = None
@@ -315,6 +319,7 @@ module Post =
         let postDetails = nodes.UserDetails.CssSelect("span[class=postdetails]").Head.InnerText()
         let postBodyContent = nodes.PostBody.CssSelect("td[colspan=2]").[1]
         let content, signature = Body.Parse(postBodyContent)
+        let timestamp = Util.ParseForumTimestamp (nodes.PostTime.CssSelect("span[class=postdetails]").Head.InnerText().Trim()) ctx.Timestamp
 
         let user =
             let profileLink = nodes.UserLinks.CssSelect("a[href^='profile.php']")
@@ -337,6 +342,7 @@ module Post =
                     JoinDate   =
                         DateTime.Parse
                             (Regex.Match(postDetails, @"Joined: (\d{1,2} \w{3} \d{4})\n").Groups.[1].Value)
+                    LastActive = timestamp
                     Avatar     =
                         match nodes.UserDetails.CssSelect("span[class=postdetails] > div > img") with
                         | img::_ -> Some (img.AttributeValue("src"))
@@ -371,7 +377,7 @@ module Post =
         let post =
             {
                 Id        = nodes.UserDetails.CssSelect("a").Head.AttributeValue("name") |> int
-                Timestamp = Util.ParseForumTimestamp (nodes.PostTime.CssSelect("span[class=postdetails]").Head.InnerText().Trim()) ctx.Timestamp
+                Timestamp = timestamp
                 UserId    = user.Id
                 TopicId   = topicId
                 Title     = nodes.PostBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
