@@ -25,7 +25,7 @@ let internal sqlStringOption (str : string option) =
 
 let internal writeUsers (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
---Inserting migrated users.
+-- Inserting migrated users.
 INSERT INTO phpbb_users
        (user_id, user_type, group_id, user_new, user_regdate, username        , username_clean  ,  user_passchg, user_lastvisit, user_lastmark, user_lastpost_time, user_posts, user_lang, user_rank, user_allow_viewemail, user_avatar_type       , user_avatar, user_sig)")
    
@@ -66,7 +66,7 @@ INSERT INTO phpbb_users
 
 let internal writeUserGroups (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
---Inserting migrated user memberships.
+-- Inserting migrated user memberships.
 INSERT INTO phpbb_user_group
        (group_id, user_id, user_pending)")
    
@@ -94,7 +94,7 @@ INSERT INTO phpbb_user_group
 
 let internal writeUserProfiles (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
---Inserting migrated user profile fields.
+-- Inserting migrated user profile fields.
 INSERT INTO phpbb_profile_fields_data
        (user_id, pf_phpbb_title, pf_phpbb_interests, pf_phpbb_occupation, pf_phpbb_location, pf_phpbb_xboxtag, pf_phpbb_website, pf_phpbb_msn, pf_phpbb_yahoo, pf_phpbb_icq)")
 
@@ -106,6 +106,19 @@ INSERT INTO phpbb_profile_fields_data
         sql.WriteLine(sprintf "%-7s(%7d, %s, %s, %s, %s, %s, %s, %s, %s, %s)," values u.Id (sqlString u.CustomRank) (sqlStringOption u.Interests) (sqlStringOption u.Occupation) (sqlStringOption u.Location) (sqlStringOption u.XboxTag) (sqlStringOption u.Homepage) (sqlStringOption u.MSN) (sqlStringOption u.YM) (sqlStringOption u.ICQ))
     )
 
+let internal writeForums (sql : IO.StreamWriter) (ctx : Context) =
+    sql.WriteLine(@"
+-- Inserting migrated forums.
+INSERT INTO phpbb_forums
+       (forum_id, forum_type, forum_flags, left_id, right_id, enable_icons, forum_name, forum_desc)")
+
+    ctx.Forums
+    |> Seq.map (fun f -> f.Value)
+    |> Seq.iteri (fun i f ->
+        let values = if i = 0 then "VALUES" else ""
+        sql.WriteLine(sprintf "%-7s(%8d, %10d, %11d, %7d, %8d, %12d, %s, %s)," values f.Id 1 48 (f.Id) (f.Id + 1) 0 (sqlString f.Name) (sqlString f.Description))
+    )
+
 let Write (file : string) (ctx : Context) =
     use sql = new IO.StreamWriter(file)
 
@@ -115,6 +128,12 @@ BEGIN;
 --------------------------------------------------
 -- USERS
 --------------------------------------------------
+
+-- TODO
+-- * Reset sequences
+-- * Update ACL
+-- * Post-process signature BBcode
+-- * Import avatars
 
 DO $$
     DECLARE UserIdShift INTEGER = 100000000;
@@ -178,7 +197,21 @@ FROM   phpbb_profile_fields_data pfold
        ) AS r ON true
 WHERE  pfnew.user_id = pfold.user_id
        AND u.user_type IN (0, 3)
-       AND pfold.pf_phpbb_title = r.rank_title;")
+       AND pfold.pf_phpbb_title = r.rank_title;
+
+--------------------------------------------------
+-- FORUMS
+--------------------------------------------------
+
+-- TODO
+-- * Categories
+-- * Ordering
+-- * Moderators
+-- * User tracking timestamp
+
+TRUNCATE TABLE phpbb_forums;")
+
+    writeForums sql ctx
 
     sql.WriteLine(@"
 --ROLLBACK;
