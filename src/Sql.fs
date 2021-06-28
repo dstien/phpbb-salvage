@@ -23,6 +23,14 @@ let internal sqlStringOption (str : string option) =
         | Some str' -> str'
     )
 
+let internal writeValues (sql : IO.StreamWriter) (rows : string list) =
+    rows
+    |> List.iteri (fun i r ->
+        let values = if i = 0 then "VALUES" else ""
+        let delim  = if i = rows.Length - 1 then ';' else ','
+        sql.WriteLine(sprintf "%-7s(%s)%c" values r delim)
+    )
+
 let internal writeUsers (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
 -- Inserting migrated users.
@@ -32,37 +40,41 @@ INSERT INTO phpbb_users
     let typeNormal = 0
     let typeFounder = 3
 
-    ctx.Users
-    |> Seq.map (fun u -> u.Value)
-    |> Seq.take 25
-    |> Seq.iteri (fun i u ->
-        let values = if i = 0 then "VALUES" else ""
-        let typ =
-            match u.Id with
-            | 3 -> typeFounder
-            | _ -> typeNormal
-        let group =
-            match u.Rank with
-            | "Administrator" -> 5
-            | "Moderator"     -> 4
-            | "Senior Member" -> 8
-            | _ -> 2
-        let rank =
-            match u.Rank with
-            | "Administrator" -> 1
-            | "Moderator" -> 2
-            | "Senior Member" -> 3
-            | _ -> 0
-        let avatarType =
-            match u.Avatar with
-            | None -> ""
-            | Some _ -> "avatar.driver.remote"
+    let rows =
+        ctx.Users
+        |> Seq.take 25
+        |> Seq.map (fun u' ->
+            let u = u'.Value
 
-        let joinDate   = unixTime u.JoinDate
-        let lastActive = unixTime u.LastActive
+            let typ =
+                match u.Id with
+                | 3 -> typeFounder
+                | _ -> typeNormal
+            let group =
+                match u.Rank with
+                | "Administrator" -> 5
+                | "Moderator"     -> 4
+                | "Senior Member" -> 8
+                | _ -> 2
+            let rank =
+                match u.Rank with
+                | "Administrator" -> 1
+                | "Moderator" -> 2
+                | "Senior Member" -> 3
+                | _ -> 0
+            let avatarType =
+                match u.Avatar with
+                | None -> ""
+                | Some _ -> "avatar.driver.remote"
 
-        sql.WriteLine(sprintf "%-7s(%7d, %9d, %8d, %8d, %12d, %-16s, %-16s, %13d, %14d, %13d, %18d, %10d, %9s, %9d, %20d, %-23s, %s, %s)," values u.Id typ group 0 joinDate (sqlString u.Name) (sqlString(u.Name.ToLowerInvariant())) joinDate lastActive lastActive lastActive u.PostCount (sqlString "en") rank (sqlBool u.CanEmail) (sqlString avatarType) (sqlStringOption u.Avatar) (sqlStringOption u.Signature))
-    )
+            let joinDate   = unixTime u.JoinDate
+            let lastActive = unixTime u.LastActive
+
+            sprintf "%7d, %9d, %8d, %8d, %12d, %-16s, %-16s, %13d, %14d, %13d, %18d, %10d, %9s, %9d, %20d, %-23s, %s, %s" u.Id typ group 0 joinDate (sqlString u.Name) (sqlString(u.Name.ToLowerInvariant())) joinDate lastActive lastActive lastActive u.PostCount (sqlString "en") rank (sqlBool u.CanEmail) (sqlString avatarType) (sqlStringOption u.Avatar) (sqlStringOption u.Signature)
+        )
+        |> Seq.toList
+
+    writeValues sql rows
 
 let internal writeUserGroups (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
@@ -75,22 +87,28 @@ INSERT INTO phpbb_user_group
     let groupSeniors = 8
     let groupRegistered = 2
 
-    ctx.Users
-    |> Seq.map (fun u -> u.Value)
-    |> Seq.take 25
-    |> Seq.iteri (fun i u ->        
-        (
-            match u.Rank with
-            | "Administrator" -> [ groupAdmins; groupMods; groupRegistered ]
-            | "Moderator"     -> [ groupMods; groupRegistered ]
-            | "Senior Member" -> [ groupSeniors; groupRegistered ]
-            | _ -> [ groupRegistered ]
+    let rows =
+        ctx.Users
+        |> Seq.take 25
+        |> Seq.map (fun u' ->
+            let u = u'.Value
+
+            (
+                match u.Rank with
+                | "Administrator" -> [ groupAdmins; groupMods; groupRegistered ]
+                | "Moderator"     -> [ groupMods; groupRegistered ]
+                | "Senior Member" -> [ groupSeniors; groupRegistered ]
+                | _ -> [ groupRegistered ]
+            )
+            |> Seq.map (fun g ->
+                sprintf "%7d, %9d, %12d" g u.Id 0
+            )
         )
-        |> List.iteri (fun j g ->
-            let values = if i = 0 && j = 0 then "VALUES" else ""
-            sql.WriteLine(sprintf "%-7s(%7d, %9d, %12d)," values g u.Id 0)
-        )
-    )
+        |> Seq.collect (id)
+        |> Seq.toList
+
+    writeValues sql rows
+
 
 let internal writeUserProfiles (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
@@ -98,13 +116,16 @@ let internal writeUserProfiles (sql : IO.StreamWriter) (ctx : Context) =
 INSERT INTO phpbb_profile_fields_data
        (user_id, pf_phpbb_title, pf_phpbb_interests, pf_phpbb_occupation, pf_phpbb_location, pf_phpbb_xboxtag, pf_phpbb_website, pf_phpbb_msn, pf_phpbb_yahoo, pf_phpbb_icq)")
 
-    ctx.Users
-    |> Seq.map (fun u -> u.Value)
-    |> Seq.take 25
-    |> Seq.iteri (fun i u ->
-        let values = if i = 0 then "VALUES" else ""
-        sql.WriteLine(sprintf "%-7s(%7d, %s, %s, %s, %s, %s, %s, %s, %s, %s)," values u.Id (sqlString u.CustomRank) (sqlStringOption u.Interests) (sqlStringOption u.Occupation) (sqlStringOption u.Location) (sqlStringOption u.XboxTag) (sqlStringOption u.Homepage) (sqlStringOption u.MSN) (sqlStringOption u.YM) (sqlStringOption u.ICQ))
-    )
+    let rows =
+        ctx.Users
+        |> Seq.take 25
+        |> Seq.map (fun u' ->
+            let u = u'.Value
+            sprintf "%7d, %s, %s, %s, %s, %s, %s, %s, %s, %s" u.Id (sqlString u.CustomRank) (sqlStringOption u.Interests) (sqlStringOption u.Occupation) (sqlStringOption u.Location) (sqlStringOption u.XboxTag) (sqlStringOption u.Homepage) (sqlStringOption u.MSN) (sqlStringOption u.YM) (sqlStringOption u.ICQ)
+        )
+        |> Seq.toList
+
+    writeValues sql rows
 
 let internal writeForums (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
@@ -112,12 +133,15 @@ let internal writeForums (sql : IO.StreamWriter) (ctx : Context) =
 INSERT INTO phpbb_forums
        (forum_id, forum_type, forum_flags, left_id, right_id, enable_icons, forum_name, forum_desc)")
 
-    ctx.Forums
-    |> Seq.map (fun f -> f.Value)
-    |> Seq.iteri (fun i f ->
-        let values = if i = 0 then "VALUES" else ""
-        sql.WriteLine(sprintf "%-7s(%8d, %10d, %11d, %7d, %8d, %12d, %s, %s)," values f.Id 1 48 (f.Id) (f.Id + 1) 0 (sqlString f.Name) (sqlString f.Description))
-    )
+    let rows =
+        ctx.Forums
+        |> Seq.map (fun f' ->
+            let f = f'.Value
+            sprintf "%8d, %10d, %11d, %7d, %8d, %12d, %s, %s" f.Id 1 48 (f.Id) (f.Id + 1) 0 (sqlString f.Name) (sqlString f.Description)
+        )
+        |> Seq.toList
+
+    writeValues sql rows
 
 let Write (file : string) (ctx : Context) =
     use sql = new IO.StreamWriter(file)
