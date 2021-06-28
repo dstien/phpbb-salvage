@@ -91,7 +91,7 @@ let main argv =
 
         match config.Output with
         | Output.Terminal  -> ()
-        | Output.Sql file  -> failwith "SQL script generation not implemented."
+        | Output.Sql file  -> Sql.Write file result
         | Output.Json file -> Util.SaveJson file result
 
         0

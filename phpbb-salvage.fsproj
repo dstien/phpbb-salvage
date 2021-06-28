@@ -9,6 +9,7 @@
     <Compile Include="src/Util.fs" />
     <Compile Include="src/Collections.fs" />
     <Compile Include="src/Parsers.fs" />
+    <Compile Include="src/Sql.fs" />
     <Compile Include="src/Program.fs" />
   </ItemGroup>
   <ItemGroup>
