@@ -3,7 +3,8 @@ module Util
 open System
 open System.Text.RegularExpressions
 open FSharp.Data
-open Thoth.Json.Net
+open MBrace.FsPickler
+open MBrace.FsPickler.Json
 
 open Types
 
@@ -33,7 +34,17 @@ let rec ParseArgs argv (config : Config) =
         match config.Input with
         | None ->
             match xs with
-            | file::xss -> ParseArgs xss { config with Input = Some (Input.Json file) }
+            | typ::xss ->
+                match typ.ToLower() with
+                | "json" ->
+                    match xss with
+                    | file::xsss -> ParseArgs xsss { config with Input = Some (Input.Json file) }
+                    | _ -> err
+                | "bin" ->
+                    match xss with
+                    | file::xsss -> ParseArgs xsss { config with Input = Some (Input.Bin file) }
+                    | _ -> err
+                | _ -> err
             | _ -> err
         | _ -> err
     | "-s"::xs ->
@@ -49,6 +60,10 @@ let rec ParseArgs argv (config : Config) =
                 match xss with
                 | file::xsss -> ParseArgs xsss { config with Output = Output.Json file }
                 | _ -> err
+            | "bin" ->
+                match xss with
+                | file::xsss -> ParseArgs xsss { config with Output = Output.Bin file }
+                | _ -> err
             | _ -> err
         | _ -> { config with Error = true }
     | "-?"::xs -> { config with Error = true }
@@ -63,26 +78,33 @@ let rec ParseArgs argv (config : Config) =
         | None -> { config with Error = true }
         | _ -> config
 
-// Save context to JSON for quick loading of already parsed data.
+// Remove unnecessary data from context before serializing.
+let internal exportableContext (ctx : Context) =
+    { ctx with
+        File      = None
+        Timestamp = DateTime.MinValue
+        Html      = HtmlNode.NewText ""
+    }
+
+// Save context to JSON for convenient loading of already parsed data.
 let SaveJson (file : string) (ctx : Context) =
-    let json =
-        Encode.Auto.toString(
-            2,
-            { ctx with
-                File      = None
-                Timestamp = DateTime.MinValue
-                Html      = HtmlNode.NewText ""
-            }
-        )
-    IO.File.WriteAllText(file, json)
+    use stream = new IO.FileStream(file, IO.FileMode.Create)
+    FsPickler.CreateJsonSerializer(true).Serialize(stream, exportableContext ctx)
 
 // Read already parsed data from JSON dump.
 let ReadJson (file : string) =
-    let json = IO.File.ReadAllText(file)
+    use stream = new IO.FileStream(file, IO.FileMode.Open)
+    FsPickler.CreateJsonSerializer().Deserialize<Context>(stream)
 
-    match Decode.Auto.fromString<Context>(json) with
-    | Ok ctx' -> ctx'
-    | Error msg -> failwith msg
+// Save context to binary for efficient loading of already parsed data.
+let SaveBin (file : string) (ctx : Context) =
+    use stream = new IO.FileStream(file, IO.FileMode.Create)
+    FsPickler.CreateBinarySerializer().Serialize(stream, exportableContext ctx)
+
+// Read already parsed data from binary dump.
+let ReadBin (file : string) =
+    use stream = new IO.FileStream(file, IO.FileMode.Open)
+    FsPickler.CreateBinarySerializer().Deserialize<Context>(stream)
 
 // Read file into HtmlDocument.
 let ReadFile (ctx : Context) =

@@ -46,14 +46,15 @@ let main argv =
     let ctx = Context.Init config
 
     if config.Error || config.Input = None then
-        printfn "Usage: %s [-v] [-q] [-s outputtype outputfile] [-l inputjson] [-f sourcetype inputfile] [datadir]" AppDomain.CurrentDomain.FriendlyName
+        printfn "Usage: %s [-v] [-q] [-s outputtype outputfile] [-l inputtype inputfile] [-f sourcetype sourceile] [datadir]" AppDomain.CurrentDomain.FriendlyName
         printfn ""
-        printfn "Supply one input type: datadir, -f type file or -l file"
+        printfn "Supply one input type: datadir, -f type file or -l type file"
         printfn ""
         printfn "  -s  Save parsed data in given format of type"
-        printfn "      Terminal (default, no file), SQL or JSON"
-        printfn "  -l  Load previously parsed data from JSON"
-        printfn "  -f  Single file input for given source of type"
+        printfn "      Terminal (default, no file), SQL, JSON or Bin"
+        printfn "  -l  Load previously parsed data in given format of type"
+        printfn "      JSON or Bin"
+        printfn "  -f  Parse single file input for given source of type"
         printfn "      Index, Forum, Topic, Memberlist or Profile"
         printfn "  -v  Increase verbosity"
         printfn "  -q  Quiet"
@@ -75,6 +76,7 @@ let main argv =
                 parser (Util.ReadFileSingle { ctx with File = Some file })
 
             | Input.Json file -> Util.ReadJson file
+            | Input.Bin  file -> Util.ReadBin  file
 
         match config.Verbosity with
         | 0 -> ()
@@ -91,7 +93,8 @@ let main argv =
 
         match config.Output with
         | Output.Terminal  -> ()
-        | Output.Sql file  -> Sql.Write file result
+        | Output.Sql  file -> Sql.Write     file result
         | Output.Json file -> Util.SaveJson file result
+        | Output.Bin  file -> Util.SaveBin  file result
 
         0

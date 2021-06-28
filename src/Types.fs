@@ -14,11 +14,13 @@ type Input =
     | Directory of string
     | File of SourceType * string
     | Json of string
+    | Bin of string
 
 type Output =
     | Terminal
     | Sql of string
     | Json of string
+    | Bin of string
 
 type Config = {
     Input     : Input option
