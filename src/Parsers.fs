@@ -26,7 +26,7 @@ module Profile =
         UserStubFromProfileLink (node.CssSelect(selector + LinkSelector).Head) rank ctx
 
     let idFromPrivMsgLink (node : HtmlNode) = IdFromLink(node.CssSelect("a[href^='privmsg']").Head)
-    let nameFromAuthorSearch (node : HtmlNode) = Regex.Match(node.CssSelect("a[href^='search\.php\?search_author']").Head.AttributeValue("href"), @"author=(.+)").Groups.[1].Value
+    let nameFromHeader (node : HtmlNode) = Regex.Match(node.CssSelect("th.thHead").Head.InnerText(), @"^Viewing profile \| (.+)$").Groups.[1].Value
     let customRank (node : HtmlNode) = node.CssSelect("span.postdetails").Head.InnerText().Trim()
 
     let avatar (node : HtmlNode) =
@@ -79,7 +79,7 @@ module Profile =
             Users.Set
                 {
                     Id         = idFromPrivMsgLink ctx.Html
-                    Name       = nameFromAuthorSearch ctx.Html
+                    Name       = nameFromHeader ctx.Html
                     Rank       = "User"
                     CustomRank = customRank ctx.Html
                     JoinDate   = joinDate
