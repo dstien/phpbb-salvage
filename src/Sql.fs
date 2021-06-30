@@ -85,7 +85,6 @@ INSERT INTO phpbb_user_group
     let groupAdmins = 5
     let groupMods = 4
     let groupSeniors = 8
-    let groupRegistered = 2
 
     let rows =
         ctx.Users
@@ -93,12 +92,13 @@ INSERT INTO phpbb_user_group
         |> Seq.map (fun u' ->
             let u = u'.Value
 
+            // Only special groups. All users are added to the "Registered" group in a separate query.
             (
                 match u.Rank with
-                | "Administrator" -> [ groupAdmins; groupMods; groupRegistered ]
-                | "Moderator"     -> [ groupMods; groupRegistered ]
-                | "Senior Member" -> [ groupSeniors; groupRegistered ]
-                | _ -> [ groupRegistered ]
+                | "Administrator" -> [ groupAdmins; groupMods ]
+                | "Moderator"     -> [ groupMods ]
+                | "Senior Member" -> [ groupSeniors ]
+                | _ -> [ ]
             )
             |> Seq.map (fun g ->
                 sprintf "%7d, %9d, %12d" g u.Id 0
@@ -249,6 +249,15 @@ END $$;")
     writeUserProfiles sql ctx
 
     sql.WriteLine(@"
+-- Set all users as members of the REGISTERED group.
+INSERT INTO phpbb_user_group
+SELECT 2 AS group_id,
+       user_id,
+	   0 AS group_leader,
+	   0 AS user_pending
+FROM   phpbb_users
+WHERE  user_id BETWEEN 2 AND 100000000;
+
 -- Copy install admin password and permissions to migrated admin account.
 UPDATE phpbb_users newadmin
 SET    user_permissions = oldadmin.user_permissions,
