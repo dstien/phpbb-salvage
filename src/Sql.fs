@@ -151,9 +151,17 @@ INSERT INTO phpbb_topics
 
     let rows =
         ctx.Topics
-        |> Seq.take 100
+        //|> Seq.take 100
+        |> Map.filter (fun id t ->
+            let hasPosts = not t.PostIds.IsEmpty
+            if ctx.Config.Verbosity > 0 && not hasPosts then
+                printfn "!!! Skipping empty topic %d, forum %d: \"%s\" by %A" t.Id t.ForumId t.Title t.UserFirst
+            hasPosts
+        )
         |> Seq.map (fun t' ->
             let t = t'.Value
+            if ctx.Config.Verbosity > 0 && t.Replies > t.PostIds.Length then
+                printfn "!!! Missing posts in topic %d, forum %d: \"%s\" by %A (got %d of %d)" t.Id t.ForumId t.Title t.UserFirst t.PostIds.Length t.Replies
 
             let topicStatus =
                 match t.Status with
@@ -188,7 +196,7 @@ INSERT INTO phpbb_topics
                 else
                     "", 0L, 0L
 
-            sprintf "%8d, %8d, %12d, %10d, %16d, %20d, %11d, %10d, %20d, %20d,%19d, %12d, %-23s, %17d, %18d, %20d, %-22s, %s, %s, %s, %d, %d"
+            sprintf "%8d, %8d, %12d, %10d, %16d, %20d, %11d, %10d, %20d, %20d, %19d, %12d, %-23s, %17d, %18d, %20d, %-22s, %s, %s, %s, %d, %d"
                 t.Id t.ForumId topicStatus topicType 1 t.PostIds.Length t.Views
                 (unixTime firstPost.Timestamp) (unixTime lastPost.Timestamp) (unixTime lastViewTime)
                 firstPost.Id userFirstId (sqlString userFirstName) userFirstDeleted
