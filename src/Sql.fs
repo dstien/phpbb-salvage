@@ -143,6 +143,57 @@ INSERT INTO phpbb_forums
 
     writeValues sql rows
 
+let internal writeTopics (sql : IO.StreamWriter) (ctx : Context) =
+    sql.WriteLine(@"
+-- Inserting migrated topics.
+INSERT INTO phpbb_forums
+       (topic_id, forum_id, topic_status, topic_type, topic_visibility, topic_posts_approved, topic_views, topic_time, topic_last_post_time, topic_last_view_time, topic_first_post_id, topic_poster, topic_first_poster_name, topic_delete_user, topic_last_post_id, topic_last_poster_id, topic_last_poster_name, topic_title, topic_last_post_subject)")
+
+    let rows =
+        ctx.Topics
+        |> Seq.take 25
+        |> Seq.map (fun t' ->
+            let t = t'.Value
+            // TODO: Make topic status enum
+            let topicStatus =
+                if t.Locked then 1
+                else 0
+
+            // TODO: Make topic type enum
+            let topicType =
+                //if t.Global then 3
+                if t.Announcement then 2
+                else if t.Sticky then 1
+                else 0
+
+            let firstPost = ctx.Posts.[t.PostIds.Head]
+            let lastPost = ctx.Posts.[t.PostIds |> List.sortDescending |> List.head]
+
+            let getUser (post : Post) =
+                match post.User with
+                | UserType.Registered id -> id, ctx.Users.[id].Name, 0
+                | UserType.Guest name -> 0, name, 1
+                | UserType.Unknown -> 0, "Unknown", 1
+
+            let userFirstId, userFirstName, userFirstDeleted = getUser firstPost
+            let userLastId, userLastName, _ = getUser lastPost
+
+            // Last crawled source of last post is considered last time topic is viewed.
+            let lastViewTime = Util.PreviousSourceOfAny lastPost.Sources
+
+            // TODO: Poll
+
+            sprintf "%8d, %8d, %12d, %10d, %16d, %20d, %11d, %10d, %20d, %20d, %19d, %12d, %-23s, %17d, %18d, %20d, %-22s, %s, %s"
+                t.Id t.ForumId topicStatus topicType 1 t.PostIds.Length t.Views
+                (unixTime firstPost.Timestamp) (unixTime lastPost.Timestamp) (unixTime lastViewTime)
+                firstPost.Id userFirstId (sqlString userFirstName) userFirstDeleted
+                lastPost.Id userLastId (sqlString userLastName)
+                (sqlString t.Title) (sqlString lastPost.Title)
+        )
+        |> Seq.toList
+
+    writeValues sql rows
+
 let Write (file : string) (ctx : Context) =
     use sql = new IO.StreamWriter(file)
 
@@ -236,6 +287,18 @@ WHERE  pfnew.user_id = pfold.user_id
 TRUNCATE TABLE phpbb_forums;")
 
     writeForums sql ctx
+
+    sql.WriteLine(@"
+--------------------------------------------------
+-- Topics
+--------------------------------------------------
+
+TRUNCATE TABLE phpbb_topics;
+TRUNCATE TABLE phpbb_posted;
+TRUNCATE TABLE phpbb_track;
+TRUNCATE TABLE phpbb_watch;")
+
+    writeTopics sql ctx
 
     sql.WriteLine(@"
 --ROLLBACK;
