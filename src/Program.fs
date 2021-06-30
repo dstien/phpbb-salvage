@@ -39,6 +39,7 @@ let ReadDir (ctx : Context) =
     |> ReadFiles "viewtopic.php"  Parsers.Topic.Parse
     |> ReadFiles "memberlist.php" Parsers.Memberlist.Parse
     |> ReadFiles "profile.php"    Parsers.Profile.Parse
+    |> Topics.PostProcess
 
 [<EntryPoint>]
 let main argv =
@@ -74,6 +75,7 @@ let main argv =
                     | SourceType.Profile    -> Parsers.Profile.Parse
 
                 parser (Util.ReadFileSingle { ctx with File = Some file })
+                |> Topics.PostProcess
 
             | Input.Json file -> Util.ReadJson file
             | Input.Bin  file -> Util.ReadBin  file

@@ -321,18 +321,19 @@ module Post =
         let content, signature = Body.Parse(postBodyContent)
         let timestamp = Util.ParseForumTimestamp (nodes.PostTime.CssSelect("span[class=postdetails]").Head.InnerText().Trim()) ctx.Timestamp
 
-        let user =
+        let user, userType =
             let profileLink = nodes.UserLinks.CssSelect("a[href^='profile.php']")
             let name = nodes.UserDetails.CssSelect("span[class=name] b").Head.InnerText()
             let customRank = Regex.Match(postDetails, @"^(.*)\n").Groups.[1].Value
 
             match profileLink.IsEmpty with
             // Guest (deleted)
-            | true -> User.Stub (Users.GuestUserId name ctx) name customRank ctx.Timestamp
+            | true -> None, UserType.Guest name
             // Existing user
             | false ->
-                {
-                    Id         = Profile.IdFromLink (nodes.UserLinks.CssSelect(Profile.LinkSelector).Head)
+                let id = Profile.IdFromLink (nodes.UserLinks.CssSelect(Profile.LinkSelector).Head)
+                Some {
+                    Id         = id
                     Name       = name
                     Rank       =
                         match nodes.UserDetails.CssSelect("span[class=postdetails] > img") with
@@ -372,13 +373,14 @@ module Post =
                     ICQ        = Profile.ICQ nodes.UserLinks
                     Signature  = signature
                     Sources    = Map.empty.Add(SourceType.Topic, ctx.Timestamp)
-                }
+                },
+                UserType.Registered id
 
         let post =
             {
                 Id        = nodes.UserDetails.CssSelect("a").Head.AttributeValue("name") |> int
                 Timestamp = timestamp
-                UserId    = user.Id
+                User      = userType
                 TopicId   = topicId
                 Title     = nodes.PostBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
                 Content   = content
@@ -387,7 +389,7 @@ module Post =
             }
 
         ctx
-        |> Users.Set user
+        |> Users.SetOptional user
         |> Posts.Set post
 
 module Topic =
@@ -432,7 +434,11 @@ module Topic =
                 {
                     Id           = id
                     ForumId      = forum.Id
-                    UserId       = -1
+                    UserFirst    = UserType.Unknown
+                    UserLast     = UserType.Unknown
+                    PostIds      = []
+                    PostIdFirst  = -1
+                    PostIdLast   = -1
                     Title        = title
                     Locked       = locked
                     Announcement = false
@@ -467,7 +473,7 @@ module Topic =
             |> (fun ctx ->
                 (
                     postNodes
-                    |> List.fold(fun ctx' nodes -> Post.Parse forum.Id nodes ctx') ctx)
+                    |> List.fold(fun ctx' nodes -> Post.Parse topic.Id nodes ctx') ctx)
                 )
 
 module Forum =
@@ -479,39 +485,41 @@ module Forum =
         let hasFlag (flag : string) = flags |> List.exists(fun f -> f.InnerText().Contains(flag))
 
         // Topic author.
-        let authorLink = row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']")
-        let authorId, authorName, authorRank =
+        let userFirstLink = row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']")
+        let userFirst, userFirstType =
             // Existing user
-            if not authorLink.IsEmpty then
-                let id, name = Profile.IdAndNameFromProfileLink(authorLink.Head)
-                id, name, "User"
+            if not userFirstLink.IsEmpty then
+                let id, name = Profile.IdAndNameFromProfileLink(userFirstLink.Head)
+                Some (User.Stub id name "User" ctx.Timestamp), UserType.Registered id
             // Guest (deleted)
             else
                 let name = row.CssSelect("td.row3").Head.InnerText().Trim()
-                let id = Users.GuestUserId name ctx
-                id, name, "Guest"
+                None, UserType.Guest name
 
         // Last posting user.
-        let lastPosterLink = row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']")
-        let lastPosterId, lastPosterName, lastPosterRank =
+        let userLastLink = row.CssSelect("td.row2 a[href^='profile.php?mode=viewprofile']")
+        let userLast, userLastType =
             // Existing user
-            if not lastPosterLink.IsEmpty then
-                let id, name = Profile.IdAndNameFromProfileLink(lastPosterLink.Head)
-                id, name, "User"
+            if not userLastLink.IsEmpty then
+                let id, name = Profile.IdAndNameFromProfileLink(userLastLink.Head)
+                Some (User.Stub id name "User" ctx.Timestamp), UserType.Registered id
             // Guest (deleted)
             else
                 let name = Regex.Match(row.CssSelect("td.row2").[1].InnerText().Trim(), @"\s(\S+)$").Groups.[1].Value
-                let id = Users.GuestUserId name ctx
-                id, name, "Guest"
+                None, UserType.Guest name
 
         ctx
-        |> Users.Set (User.Stub authorId authorName authorRank ctx.Timestamp)
-        |> Users.Set (User.Stub lastPosterId lastPosterName lastPosterRank ctx.Timestamp)
+        |> Users.SetOptional userFirst
+        |> Users.SetOptional userLast
         |> Topics.Set
             {
                 Id           = id
                 ForumId      = forum.Id
-                UserId       = authorId
+                UserFirst    = userFirstType
+                UserLast     = userLastType
+                PostIds      = []
+                PostIdFirst  = -1
+                PostIdLast   = -1
                 Title        = title
                 Locked       = locked
                 Announcement = hasFlag "Announcement"

@@ -161,17 +161,14 @@ module Users =
                 Usernames = ctx.Usernames.Add (merged.Name, merged.Id)
         }
 
+    let SetOptional (user : User option) (ctx : Context) =
+        match user with
+        | Some user -> Set user ctx
+        | None -> ctx
+
     let SetList (users : User list) (ctx : Context) =
         users
         |> List.fold (fun ctx' user -> Set user ctx') ctx
-
-    // Deleted users don't have a visible id. We try to look up by name and assign the first negative id if not found.
-    let GuestUserId (name : string) (ctx : Context) =
-        let rec findAvailableGuestId id = if ctx.Users.ContainsKey id then findAvailableGuestId (id - 1) else id
-
-        match ctx.Usernames.TryFind name with
-        | Some id -> id
-        | None -> findAvailableGuestId -1
 
 module Posts =
     let internal merge (old: Post) (new' : Post) =
@@ -186,7 +183,7 @@ module Posts =
 
     let Set (post : Post) (ctx : Context) =
         if ctx.Config.Verbosity > 1 then
-            printfn "  Setting post %i in topic %i by user %i" post.Id post.TopicId post.UserId
+            printfn "  Setting post %i in topic %i by user %s" post.Id post.TopicId (Util.PrintUserType post.User)
 
         let merged =
             match ctx.Posts.TryFind post.Id with
@@ -213,12 +210,17 @@ module Topics =
                         new'.ForumId
                     else
                         old.ForumId
-                UserId       =
+                UserFirst    =
                     // Only forum view contains topic author.
                     if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
-                        new'.UserId
+                        new'.UserFirst
                     else
-                        old.UserId
+                        old.UserFirst
+                // These fields will be set after all posts have been parsed.
+                UserLast     = old.UserLast
+                PostIds      = old.PostIds
+                PostIdFirst  = old.PostIdFirst
+                PostIdLast   = old.PostIdLast
                 Title        =
                     // All source types contains topic title.
                     if previousOfAny < newSourceTime then
@@ -278,6 +280,38 @@ module Topics =
             | Some old  -> merge old topic
 
         { ctx with Topics = ctx.Topics.Add (merged.Id, merged) }
+
+    let PostProcess (ctx : Context) =
+        {
+            ctx with
+                Topics =
+                    ctx.Topics
+                    |> Map.map ( fun topicId topic ->
+                        let posts =
+                            ctx.Posts
+                            |> Map.filter (fun i p -> p.TopicId = topicId)
+                            |> Map.toList
+                            |> List.map (fun(i, p) -> i)
+                            |> List.sort
+
+                        let postFirst, postLast =
+                            if posts.IsEmpty then
+                                if ctx.Config.Verbosity > 0 then
+                                    printfn "!!! Topic %d: \"%s\" by %s has no posts !!!" topicId topic.Title (Util.PrintUserType topic.UserFirst)
+                                -1, -1
+                            else
+                                posts.Head, posts |> List.sortDescending |> List.head
+
+                        {
+                            topic with
+                                UserFirst   = if postFirst = -1 then UserType.Unknown else ctx.Posts.[postFirst].User
+                                UserLast    = if postLast  = -1 then UserType.Unknown else ctx.Posts.[postLast].User
+                                PostIds     = posts
+                                PostIdFirst = postFirst
+                                PostIdLast  = postLast
+                        }
+                    )
+        }
 
 module Forums =
     let internal merge (old: Forum) (new' : Forum) =

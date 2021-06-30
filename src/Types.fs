@@ -29,6 +29,11 @@ type Config = {
     Error     : bool
 }
 
+type UserType =
+    | Registered of int
+    | Guest of string
+    | Unknown
+
 type User = {
     Id         : int
     Name       : string
@@ -84,7 +89,7 @@ type Edited = {
 type Post = {
     Id        : int
     Timestamp : DateTime
-    UserId    : int
+    User      : UserType
     TopicId   : int
     Title     : string
     Content   : string
@@ -106,7 +111,11 @@ type Poll = {
 type Topic = {
     Id           : int
     ForumId      : int
-    UserId       : int
+    UserFirst    : UserType
+    UserLast     : UserType
+    PostIds      : int list
+    PostIdFirst  : int
+    PostIdLast   : int
     Title        : string
     Locked       : bool
     Announcement : bool

@@ -121,6 +121,13 @@ let ReadFile (ctx : Context) =
 let ReadFileSingle (ctx : Context) =
     ReadFile { ctx with Timestamp = IO.File.GetCreationTime(ctx.File.Value) }
 
+// UserType field to string.
+let PrintUserType (user : UserType) =
+    match user with
+    | UserType.Guest name    -> sprintf "\"%s\" (guest)" name
+    | UserType.Registered id -> sprintf "%d" id
+    | UserType.Unknown       -> "(unknown)"
+
 // Print items in a Map<int, 'T> one by one.
 let PrintMap (map' : Map<int, 'T>) (label : string) =
     printfn "%s =" label
