@@ -430,19 +430,20 @@ module Topic =
 
             let topic =
                 let id, title = IdAndTitleFromTopicLink(ctx.Html.CssSelect("a.cattitlewhite").[2])
-                let locked = not (ctx.Html.CssSelect("table.forumline > tr > th img[alt^='This topic is locked']").IsEmpty)
+                let status =
+                    match ctx.Html.CssSelect("table.forumline > tr > th img[alt^='This topic is locked']").IsEmpty with
+                    | true  -> TopicStatus.Unlocked
+                    | false -> TopicStatus.Locked
+
                 {
                     Id           = id
                     ForumId      = forum.Id
+                    Status       = status
+                    Type         = TopicType.Normal
                     UserFirst    = UserType.Unknown
                     UserLast     = UserType.Unknown
                     PostIds      = []
-                    PostIdFirst  = -1
-                    PostIdLast   = -1
                     Title        = title
-                    Locked       = locked
-                    Announcement = false
-                    Sticky       = false
                     Poll         = parsePoll ctx.Html
                     Replies      = -1
                     Views        = -1
@@ -480,9 +481,21 @@ module Forum =
     // Topic rows in forum table.
     let internal topicRow (row : HtmlNode) (forum : Forum) (ctx : Context) =
         let id, title = Topic.IdAndTitleFromTopicLink(row.CssSelect("a.topictitle").Head)
-        let locked = not (row.CssSelect("td.row1 > img[alt^='This topic is locked']").IsEmpty)
+        let status =
+            match row.CssSelect("td.row1 > img[alt^='This topic is locked']").IsEmpty with
+            | true  -> TopicStatus.Unlocked
+            | false -> TopicStatus.Locked
+
         let flags = row.CssSelect("span.topictitle > b")
         let hasFlag (flag : string) = flags |> List.exists(fun f -> f.InnerText().Contains(flag))
+
+        let type' =
+            if hasFlag "Announcement" then
+                TopicType.Announcement
+            else if hasFlag "Sticky" then
+                TopicType.Sticky
+            else
+                TopicType.Normal
 
         // Topic author.
         let userFirstLink = row.CssSelect("td.row3 a[href^='profile.php?mode=viewprofile']")
@@ -515,15 +528,12 @@ module Forum =
             {
                 Id           = id
                 ForumId      = forum.Id
+                Status       = status
+                Type         = type'
                 UserFirst    = userFirstType
                 UserLast     = userLastType
                 PostIds      = []
-                PostIdFirst  = -1
-                PostIdLast   = -1
                 Title        = title
-                Locked       = locked
-                Announcement = hasFlag "Announcement"
-                Sticky       = hasFlag "Sticky"
                 Poll         =
                     match (hasFlag "Poll") with
                     | true -> Some { Question = ""; Options = []; Votes = 0 }

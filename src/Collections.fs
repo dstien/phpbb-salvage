@@ -210,6 +210,18 @@ module Topics =
                         new'.ForumId
                     else
                         old.ForumId
+                Status       =
+                    // All source types contains topic status.
+                    if previousOfAny < newSourceTime then
+                        new'.Status
+                    else
+                        old.Status
+                Type         =
+                    // Only forum view has type flag.
+                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
+                        new'.Type
+                    else
+                        old.Type
                 UserFirst    =
                     // Only forum view contains topic author.
                     if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
@@ -219,32 +231,12 @@ module Topics =
                 // These fields will be set after all posts have been parsed.
                 UserLast     = old.UserLast
                 PostIds      = old.PostIds
-                PostIdFirst  = old.PostIdFirst
-                PostIdLast   = old.PostIdLast
                 Title        =
                     // All source types contains topic title.
                     if previousOfAny < newSourceTime then
                         new'.Title
                     else
                         old.Title
-                Locked       =
-                    // All source types contains locked flag.
-                    if previousOfAny < newSourceTime then
-                        new'.Locked
-                    else
-                        old.Locked
-                Announcement =
-                    // Only forum view has announcement flag.
-                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
-                        new'.Announcement
-                    else
-                        old.Announcement
-                Sticky       =
-                    // Only forum view has sticky flag.
-                    if newSourceType = SourceType.Forum && previousOfSame < newSourceTime then
-                        new'.Sticky
-                    else
-                        old.Sticky
                 Poll         =
                     // Only topic view has full poll details.
                     if new'.Poll.IsSome && newSourceType = SourceType.Topic && previousOfSame < newSourceTime then
@@ -307,8 +299,6 @@ module Topics =
                                 UserFirst   = if postFirst = -1 then UserType.Unknown else ctx.Posts.[postFirst].User
                                 UserLast    = if postLast  = -1 then UserType.Unknown else ctx.Posts.[postLast].User
                                 PostIds     = posts
-                                PostIdFirst = postFirst
-                                PostIdLast  = postLast
                         }
                     )
         }

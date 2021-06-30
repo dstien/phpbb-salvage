@@ -154,17 +154,17 @@ INSERT INTO phpbb_forums
         |> Seq.take 25
         |> Seq.map (fun t' ->
             let t = t'.Value
-            // TODO: Make topic status enum
-            let topicStatus =
-                if t.Locked then 1
-                else 0
 
-            // TODO: Make topic type enum
+            let topicStatus =
+                match t.Status with
+                | TopicStatus.Locked   -> 1
+                | TopicStatus.Unlocked -> 0
+
             let topicType =
-                //if t.Global then 3
-                if t.Announcement then 2
-                else if t.Sticky then 1
-                else 0
+                match t.Type with
+                | TopicType.Announcement -> 2
+                | TopicType.Sticky       -> 1
+                | TopicType.Normal       -> 0
 
             let firstPost = ctx.Posts.[t.PostIds.Head]
             let lastPost = ctx.Posts.[t.PostIds |> List.sortDescending |> List.head]

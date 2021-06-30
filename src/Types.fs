@@ -97,6 +97,17 @@ type Post = {
     Sources   : Map<SourceType, DateTime>
 }
 
+type TopicStatus =
+    | Unlocked
+    | Locked
+    //| Moved of int
+
+type TopicType =
+    | Normal
+    | Sticky
+    | Announcement
+    //| Global
+
 type PollOption = {
     Text  : string
     Votes : int
@@ -111,15 +122,12 @@ type Poll = {
 type Topic = {
     Id           : int
     ForumId      : int
+    Status       : TopicStatus
+    Type         : TopicType
     UserFirst    : UserType
     UserLast     : UserType
     PostIds      : int list
-    PostIdFirst  : int
-    PostIdLast   : int
     Title        : string
-    Locked       : bool
-    Announcement : bool
-    Sticky       : bool
     Poll         : Poll option
     Replies      : int
     Views        : int
