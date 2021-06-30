@@ -77,8 +77,8 @@ let main argv =
                 parser (Util.ReadFileSingle { ctx with File = Some file })
                 |> Topics.PostProcess
 
-            | Input.Json file -> Util.ReadJson file
-            | Input.Bin  file -> Util.ReadBin  file
+            | Input.Json file -> { Util.ReadJson file with Config = config }
+            | Input.Bin  file -> { Util.ReadBin  file with Config = config }
 
         match config.Verbosity with
         | 0 -> ()
