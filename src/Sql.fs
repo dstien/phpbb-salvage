@@ -5,10 +5,10 @@ open System
 open Types
 open Collections
 
-let unixTime (time : DateTime) =
+let internal unixTime (time : DateTime) =
     DateTimeOffset(time).ToUnixTimeSeconds()
 
-let sqlBool (value : bool) =
+let internal sqlBool (value : bool) =
     match value with
     | false -> 0
     | true  -> 1
@@ -59,7 +59,7 @@ INSERT INTO phpbb_users
             let rank =
                 match u.Rank with
                 | "Administrator" -> 1
-                | "Moderator" -> 2
+                | "Moderator"     -> 2
                 | "Senior Member" -> 3
                 | _ -> 0
             let avatarType =
@@ -146,12 +146,12 @@ INSERT INTO phpbb_forums
 let internal writeTopics (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine(@"
 -- Inserting migrated topics.
-INSERT INTO phpbb_forums
-       (topic_id, forum_id, topic_status, topic_type, topic_visibility, topic_posts_approved, topic_views, topic_time, topic_last_post_time, topic_last_view_time, topic_first_post_id, topic_poster, topic_first_poster_name, topic_delete_user, topic_last_post_id, topic_last_poster_id, topic_last_poster_name, topic_title, topic_last_post_subject)")
+INSERT INTO phpbb_topics
+       (topic_id, forum_id, topic_status, topic_type, topic_visibility, topic_posts_approved, topic_views, topic_time, topic_last_post_time, topic_last_view_time, topic_first_post_id, topic_poster, topic_first_poster_name, topic_delete_user, topic_last_post_id, topic_last_poster_id, topic_last_poster_name, topic_title, topic_last_post_subject, poll_title, poll_start, poll_last_vote)")
 
     let rows =
         ctx.Topics
-        |> Seq.take 25
+        |> Seq.take 100
         |> Seq.map (fun t' ->
             let t = t'.Value
 
@@ -181,14 +181,20 @@ INSERT INTO phpbb_forums
             // Last crawled source of last post is considered last time topic is viewed.
             let lastViewTime = Util.PreviousSourceOfAny lastPost.Sources
 
-            // TODO: Poll
+            let pollTitle, pollStart, pollLastVote =
+                if t.Poll.IsSome && t.Poll.Value.Options.Length > 0 then
+                    let p = t.Poll.Value
+                    p.Question, unixTime(firstPost.Timestamp), unixTime(lastPost.Timestamp)
+                else
+                    "", 0L, 0L
 
-            sprintf "%8d, %8d, %12d, %10d, %16d, %20d, %11d, %10d, %20d, %20d, %19d, %12d, %-23s, %17d, %18d, %20d, %-22s, %s, %s"
+            sprintf "%8d, %8d, %12d, %10d, %16d, %20d, %11d, %10d, %20d, %20d,%19d, %12d, %-23s, %17d, %18d, %20d, %-22s, %s, %s, %s, %d, %d"
                 t.Id t.ForumId topicStatus topicType 1 t.PostIds.Length t.Views
                 (unixTime firstPost.Timestamp) (unixTime lastPost.Timestamp) (unixTime lastViewTime)
                 firstPost.Id userFirstId (sqlString userFirstName) userFirstDeleted
                 lastPost.Id userLastId (sqlString userLastName)
                 (sqlString t.Title) (sqlString lastPost.Title)
+                (sqlString pollTitle) pollStart pollLastVote
         )
         |> Seq.toList
 
@@ -302,10 +308,15 @@ TRUNCATE TABLE phpbb_forums;")
 -- Topics
 --------------------------------------------------
 
+-- TODO
+-- * Poll options
+-- * Poll votes
+-- * User track timestamps
+
 TRUNCATE TABLE phpbb_topics;
-TRUNCATE TABLE phpbb_posted;
-TRUNCATE TABLE phpbb_track;
-TRUNCATE TABLE phpbb_watch;")
+TRUNCATE TABLE phpbb_topics_posted;
+TRUNCATE TABLE phpbb_topics_track;
+TRUNCATE TABLE phpbb_topics_watch;")
 
     writeTopics sql ctx
 
