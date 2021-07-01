@@ -110,7 +110,7 @@ INSERT INTO phpbb_user_group
                 sprintf "%7d, %9d, %12d" g u.Id 0
             )
         )
-        |> Seq.collect (id)
+        |> Seq.collect id
         |> Seq.toList
 
     writeValues sql rows
@@ -145,6 +145,26 @@ INSERT INTO phpbb_forums
             let f = f'.Value
             sprintf "%8d, %10d, %11d, %7d, %8d, %12d, %s, %s" f.Id 1 48 (f.Id) (f.Id + 1) 0 (sqlString f.Name) (sqlString f.Description)
         )
+        |> Seq.toList
+
+    writeValues sql rows
+
+let internal writeForumModerators (sql : IO.StreamWriter) (ctx : Context) =
+    sql.WriteLine(@"
+-- Inserting migrated group moderators.
+INSERT INTO phpbb_acl_users
+       (user_id, forum_id, auth_role_id)")
+
+    let rows =
+        ctx.Forums
+        |> Seq.map (fun f' ->
+            let f = f'.Value
+            f.Moderators
+            |> List.map (fun u ->
+                sprintf "%7d, %8d, %12d" u f.Id 11
+            )
+        )
+        |> Seq.collect id
         |> Seq.toList
 
     writeValues sql rows
@@ -249,7 +269,6 @@ BEGIN;
 
 -- TODO
 -- * Reset sequences
--- * Update ACL
 -- * Post-process signature BBcode
 -- * Import avatars
 
@@ -285,6 +304,9 @@ BEGIN
         SET    user_id = user_id + UserIdShift
         WHERE  user_id BETWEEN 2 AND (UserIdShift);
     END IF;
+
+    // Clear forum moderators.
+    DELETE FROM phpbb_acl_users WHERE forum_id <> 0;
 END $$;")
 
     writeUsers sql ctx
@@ -333,12 +355,12 @@ WHERE  pfnew.user_id = pfold.user_id
 -- TODO
 -- * Categories
 -- * Ordering
--- * Moderators
 -- * User tracking timestamp
 
 TRUNCATE TABLE phpbb_forums;")
 
     writeForums sql ctx
+    writeForumModerators sql ctx
 
     sql.WriteLine(@"
 --------------------------------------------------
