@@ -23,6 +23,12 @@ let internal sqlStringOption (str : string option) =
         | Some str' -> str'
     )
 
+let getUser (post : Post) (ctx : Context) =
+    match post.User with
+    | UserType.Registered id -> id, ctx.Users.[id].Name, 0
+    | UserType.Guest name -> 1, name, 1
+    | UserType.Unknown -> 1, "Unknown", 1
+
 let internal writeValues (sql : IO.StreamWriter) (rows : string list) =
     rows
     |> List.iteri (fun i r ->
@@ -151,13 +157,13 @@ INSERT INTO phpbb_topics
 
     let rows =
         ctx.Topics
-        //|> Seq.take 100
         |> Map.filter (fun id t ->
             let hasPosts = not t.PostIds.IsEmpty
             if ctx.Config.Verbosity > 0 && not hasPosts then
                 printfn "!!! Skipping empty topic %d, forum %d: \"%s\" by %A" t.Id t.ForumId t.Title t.UserFirst
             hasPosts
         )
+        |> Seq.take 100
         |> Seq.map (fun t' ->
             let t = t'.Value
             if ctx.Config.Verbosity > 0 && t.Replies > t.PostIds.Length then
@@ -177,14 +183,8 @@ INSERT INTO phpbb_topics
             let firstPost = ctx.Posts.[t.PostIds.Head]
             let lastPost = ctx.Posts.[t.PostIds |> List.sortDescending |> List.head]
 
-            let getUser (post : Post) =
-                match post.User with
-                | UserType.Registered id -> id, ctx.Users.[id].Name, 0
-                | UserType.Guest name -> 0, name, 1
-                | UserType.Unknown -> 0, "Unknown", 1
-
-            let userFirstId, userFirstName, userFirstDeleted = getUser firstPost
-            let userLastId, userLastName, _ = getUser lastPost
+            let userFirstId, userFirstName, userFirstDeleted = getUser firstPost ctx
+            let userLastId, userLastName, _ = getUser lastPost ctx
 
             // Last crawled source of last post is considered last time topic is viewed.
             let lastViewTime = Util.PreviousSourceOfAny lastPost.Sources
@@ -203,6 +203,35 @@ INSERT INTO phpbb_topics
                 lastPost.Id userLastId (sqlString userLastName)
                 (sqlString t.Title) (sqlString lastPost.Title)
                 (sqlString pollTitle) pollStart pollLastVote
+        )
+        |> Seq.toList
+
+    writeValues sql rows
+
+let internal writePosts (sql : IO.StreamWriter) (ctx : Context) =
+    sql.WriteLine(@"
+-- Inserting migrated posts.
+INSERT INTO phpbb_posts
+       (post_id, topic_id, forum_id, post_visibility,  post_time, poster_id, post_username  , post_delete_user, post_subject, post_text, post_edit_time, post_edit_count, post_edit_user)")
+
+    let rows =
+        ctx.Posts
+        |> Seq.take 200
+        |> Seq.map (fun p' ->
+            let p = p'.Value
+            let userId, userName, userDeleted = getUser p ctx
+            let editTime, editCount, editUser =
+                match p.Edited with
+                | Some e ->
+                    let userId =
+                        match ctx.Usernames.TryFind e.User with
+                        | Some id -> id
+                        | None    -> 1
+                    unixTime e.Last, e.Count, userId
+                | None -> 0L, 0, 0
+
+            sprintf "%7d, %8d, %8d, %15d, %9d, %9d, %-15s, %16d, %-12s, %s, %d, %d, %d"
+                     p.Id p.TopicId (ctx.Topics.[p.TopicId].ForumId) 1 (unixTime p.Timestamp) userId (sqlString userName) userDeleted (sqlString p.Title) (sqlString p.Content) editTime editCount editUser
         )
         |> Seq.toList
 
@@ -329,6 +358,25 @@ TRUNCATE TABLE phpbb_topics_watch;")
     writeTopics sql ctx
 
     sql.WriteLine(@"
+--------------------------------------------------
+-- Posts
+--------------------------------------------------
+
+TRUNCATE TABLE phpbb_posts;
+TRUNCATE TABLE phpbb_topics_posted;")
+
+    writePosts sql ctx
+
+    sql.WriteLine(@"
+-- Populate topics_posted.
+INSERT INTO phpbb_topics_posted
+SELECT poster_id AS user_id,
+       topic_id,
+	   1 AS topic_posted
+FROM   phpbb_posts
+WHERE  poster_id > 1
+GROUP  BY poster_id, topic_id;
+
 --ROLLBACK;
 --COMMIT;
 ")
