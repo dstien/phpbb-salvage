@@ -23,25 +23,34 @@ let internal sqlStringOption (str : string option) =
         | Some str' -> str'
     )
 
+// Get username and id from UserType with default id for unregistered users.
 let getUser (post : Post) (ctx : Context) =
     match post.User with
     | UserType.Registered id -> id, ctx.Users.[id].Name, 0
     | UserType.Guest name -> 1, name, 1
     | UserType.Unknown -> 1, "Unknown", 1
 
-let internal writeValues (sql : IO.StreamWriter) (rows : string list) =
+// Write statements in chunks of 1000 records.
+let internal writeValues (sql : IO.StreamWriter) (header : string) (rows : string list) =
     rows
-    |> List.iteri (fun i r ->
-        let values = if i = 0 then "VALUES" else ""
-        let delim  = if i = rows.Length - 1 then ';' else ','
-        sql.WriteLine(sprintf "%-7s(%s)%c" values r delim)
+    |> List.chunkBySize 1000
+    |> List.iter (fun chunk ->
+        sql.WriteLine header
+
+        chunk
+        |> List.iteri (fun i r ->
+            let values = if i = 0 then "VALUES" else ""
+            let delim  = if i = chunk.Length - 1 then ';' else ','
+            sql.WriteLine(sprintf "%-7s(%s)%c" values r delim)
+        )
+
+        sql.WriteLine ""
     )
 
 let internal writeUsers (sql : IO.StreamWriter) (ctx : Context) =
-    sql.WriteLine(@"
--- Inserting migrated users.
-INSERT INTO phpbb_users
-       (user_id, user_type, group_id, user_new, user_regdate, username        , username_clean  ,  user_passchg, user_lastvisit, user_lastmark, user_lastpost_time, user_posts, user_lang, user_rank, user_allow_viewemail, user_avatar_type       , user_avatar, user_sig)")
+    sql.WriteLine("-- Inserting migrated users.")
+    let header = @"INSERT INTO phpbb_users
+       (user_id, user_type, group_id, user_new, user_regdate, username        , username_clean  ,  user_passchg, user_lastvisit, user_lastmark, user_lastpost_time, user_posts, user_lang, user_rank, user_allow_viewemail, user_avatar_type       , user_avatar, user_sig)"
    
     let typeNormal = 0
     let typeFounder = 3
@@ -80,13 +89,12 @@ INSERT INTO phpbb_users
         )
         |> Seq.toList
 
-    writeValues sql rows
+    writeValues sql header rows
 
 let internal writeUserGroups (sql : IO.StreamWriter) (ctx : Context) =
-    sql.WriteLine(@"
--- Inserting migrated user memberships.
-INSERT INTO phpbb_user_group
-       (group_id, user_id, user_pending)")
+    sql.WriteLine("-- Inserting migrated user memberships.")
+    let header = @"INSERT INTO phpbb_user_group
+       (group_id, user_id, user_pending)"
    
     let groupAdmins = 5
     let groupMods = 4
@@ -113,14 +121,12 @@ INSERT INTO phpbb_user_group
         |> Seq.collect id
         |> Seq.toList
 
-    writeValues sql rows
-
+    writeValues sql header rows
 
 let internal writeUserProfiles (sql : IO.StreamWriter) (ctx : Context) =
-    sql.WriteLine(@"
--- Inserting migrated user profile fields.
-INSERT INTO phpbb_profile_fields_data
-       (user_id, pf_phpbb_title, pf_phpbb_interests, pf_phpbb_occupation, pf_phpbb_location, pf_phpbb_xboxtag, pf_phpbb_website, pf_phpbb_msn, pf_phpbb_yahoo, pf_phpbb_icq)")
+    sql.WriteLine("-- Inserting migrated user profile fields.")
+    let header = @"INSERT INTO phpbb_profile_fields_data
+       (user_id, pf_phpbb_title, pf_phpbb_interests, pf_phpbb_occupation, pf_phpbb_location, pf_phpbb_xboxtag, pf_phpbb_website, pf_phpbb_msn, pf_phpbb_yahoo, pf_phpbb_icq)"
 
     let rows =
         ctx.Users
@@ -131,13 +137,12 @@ INSERT INTO phpbb_profile_fields_data
         )
         |> Seq.toList
 
-    writeValues sql rows
+    writeValues sql header rows
 
 let internal writeForums (sql : IO.StreamWriter) (ctx : Context) =
-    sql.WriteLine(@"
--- Inserting migrated forums.
-INSERT INTO phpbb_forums
-       (forum_id, forum_type, forum_flags, left_id, right_id, enable_icons, forum_name, forum_desc)")
+    sql.WriteLine("-- Inserting migrated forums.")
+    let header = @"INSERT INTO phpbb_forums
+       (forum_id, forum_type, forum_flags, left_id, right_id, enable_icons, forum_name, forum_desc)"
 
     let rows =
         ctx.Forums
@@ -147,13 +152,12 @@ INSERT INTO phpbb_forums
         )
         |> Seq.toList
 
-    writeValues sql rows
+    writeValues sql header rows
 
 let internal writeForumModerators (sql : IO.StreamWriter) (ctx : Context) =
-    sql.WriteLine(@"
--- Inserting migrated group moderators.
-INSERT INTO phpbb_acl_users
-       (user_id, forum_id, auth_role_id)")
+    sql.WriteLine("-- Inserting migrated group moderators.")
+    let header = @"INSERT INTO phpbb_acl_users
+       (user_id, forum_id, auth_role_id)"
 
     let rows =
         ctx.Forums
@@ -167,13 +171,12 @@ INSERT INTO phpbb_acl_users
         |> Seq.collect id
         |> Seq.toList
 
-    writeValues sql rows
+    writeValues sql header rows
 
 let internal writeTopics (sql : IO.StreamWriter) (ctx : Context) =
-    sql.WriteLine(@"
--- Inserting migrated topics.
-INSERT INTO phpbb_topics
-       (topic_id, forum_id, topic_status, topic_type, topic_visibility, topic_posts_approved, topic_views, topic_time, topic_last_post_time, topic_last_view_time, topic_first_post_id, topic_poster, topic_first_poster_name, topic_delete_user, topic_last_post_id, topic_last_poster_id, topic_last_poster_name, topic_title, topic_last_post_subject, poll_title, poll_start, poll_last_vote)")
+    sql.WriteLine("-- Inserting migrated topics.")
+    let header = @"INSERT INTO phpbb_topics
+       (topic_id, forum_id, topic_status, topic_type, topic_visibility, topic_posts_approved, topic_views, topic_time, topic_last_post_time, topic_last_view_time, topic_first_post_id, topic_poster, topic_first_poster_name, topic_delete_user, topic_last_post_id, topic_last_poster_id, topic_last_poster_name, topic_title, topic_last_post_subject, poll_title, poll_start, poll_last_vote)"
 
     let rows =
         ctx.Topics
@@ -183,7 +186,7 @@ INSERT INTO phpbb_topics
                 printfn "!!! Skipping empty topic %d, forum %d: \"%s\" by %A" t.Id t.ForumId t.Title t.UserFirst
             hasPosts
         )
-        |> Seq.take 100
+        |> Seq.take 25
         |> Seq.map (fun t' ->
             let t = t'.Value
             if ctx.Config.Verbosity > 0 && t.Replies > t.PostIds.Length then
@@ -217,7 +220,7 @@ INSERT INTO phpbb_topics
                     "", 0L, 0L
 
             sprintf "%8d, %8d, %12d, %10d, %16d, %20d, %11d, %10d, %20d, %20d, %19d, %12d, %-23s, %17d, %18d, %20d, %-22s, %s, %s, %s, %d, %d"
-                t.Id t.ForumId topicStatus topicType 1 t.PostIds.Length t.Views
+                t.Id t.ForumId topicStatus topicType 1 t.PostIds.Length (max 0 t.Views)
                 (unixTime firstPost.Timestamp) (unixTime lastPost.Timestamp) (unixTime lastViewTime)
                 firstPost.Id userFirstId (sqlString userFirstName) userFirstDeleted
                 lastPost.Id userLastId (sqlString userLastName)
@@ -226,19 +229,19 @@ INSERT INTO phpbb_topics
         )
         |> Seq.toList
 
-    writeValues sql rows
+    writeValues sql header rows
 
 let internal writePosts (sql : IO.StreamWriter) (ctx : Context) =
-    sql.WriteLine(@"
--- Inserting migrated posts.
-INSERT INTO phpbb_posts
-       (post_id, topic_id, forum_id, post_visibility,  post_time, poster_id, post_username  , post_delete_user, post_subject, post_text, post_edit_time, post_edit_count, post_edit_user)")
+    sql.WriteLine("-- Inserting migrated posts.")
+    let header = @"INSERT INTO phpbb_posts
+       (post_id, topic_id, forum_id, post_visibility,  post_time, poster_id, post_username  , post_delete_user, post_subject, post_text, post_edit_time, post_edit_count, post_edit_user)"
 
     let rows =
         ctx.Posts
-        |> Seq.take 200
+        |> Seq.take 25
         |> Seq.map (fun p' ->
             let p = p'.Value
+
             let userId, userName, userDeleted = getUser p ctx
             let editTime, editCount, editUser =
                 match p.Edited with
@@ -250,12 +253,18 @@ INSERT INTO phpbb_posts
                     unixTime e.Last, e.Count, userId
                 | None -> 0L, 0, 0
 
+            let content = sqlString p.Content
+            let maxContent = 25000
+
+            if ctx.Config.Verbosity > 0 && content.Length > maxContent then
+                printfn "!!! Truncating long post %d, topic %d: %d bytes unprocessed, %d bytes escaped" p.Id p.TopicId p.Content.Length content.Length
+
             sprintf "%7d, %8d, %8d, %15d, %9d, %9d, %-15s, %16d, %-12s, %s, %d, %d, %d"
-                     p.Id p.TopicId (ctx.Topics.[p.TopicId].ForumId) 1 (unixTime p.Timestamp) userId (sqlString userName) userDeleted (sqlString p.Title) (sqlString p.Content) editTime editCount editUser
+                     p.Id p.TopicId (ctx.Topics.[p.TopicId].ForumId) 1 (unixTime p.Timestamp) userId (sqlString userName) userDeleted (sqlString p.Title) (if content.Length > maxContent then "'___LONGPOST___'" else content) editTime editCount editUser
         )
         |> Seq.toList
 
-    writeValues sql rows
+    writeValues sql header rows
 
 let Write (file : string) (ctx : Context) =
     use sql = new IO.StreamWriter(file)
@@ -305,7 +314,7 @@ BEGIN
         WHERE  user_id BETWEEN 2 AND (UserIdShift);
     END IF;
 
-    // Clear forum moderators.
+    -- Clear forum moderators.
     DELETE FROM phpbb_acl_users WHERE forum_id <> 0;
 END $$;")
 
