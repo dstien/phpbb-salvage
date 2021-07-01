@@ -231,6 +231,27 @@ let internal writeTopics (sql : IO.StreamWriter) (ctx : Context) =
 
     writeValues sql header rows
 
+let internal writePollOptions (sql : IO.StreamWriter) (ctx : Context) =
+    sql.WriteLine("-- Inserting migrated poll options.")
+    let header = @"INSERT INTO phpbb_poll_options
+       (poll_option_id, topic_id, poll_option_total, poll_option_text)"
+
+    let rows =
+        ctx.Topics
+        |> Map.filter (fun id t -> t.Poll.IsSome && t.Poll.Value.Options.Length > 0)
+        |> Seq.take 25
+        |> Seq.map (fun t ->
+            let p = t.Value.Poll.Value
+            p.Options
+            |> List.mapi (fun i o ->
+                sprintf "%14d, %8d, %17d, %s" i t.Value.Id o.Votes (sqlString o.Text)
+            )
+        )
+        |> Seq.collect id
+        |> Seq.toList
+
+    writeValues sql header rows
+
 let internal writePosts (sql : IO.StreamWriter) (ctx : Context) =
     sql.WriteLine("-- Inserting migrated posts.")
     let header = @"INSERT INTO phpbb_posts
@@ -387,6 +408,7 @@ TRUNCATE TABLE phpbb_topics_track;
 TRUNCATE TABLE phpbb_topics_watch;")
 
     writeTopics sql ctx
+    writePollOptions sql ctx
 
     sql.WriteLine(@"
 --------------------------------------------------
