@@ -162,7 +162,7 @@ module Post =
                 // Strip edit details.
                 | HtmlElement ("span", [ HtmlAttribute("class", "gensmall")], _) -> HtmlNode.NewText("")
                 // [img]href[/img]
-                // phpbb smilies
+                // phpbb smilies (create dedicated tag)
                 | HtmlElement ("img", _, _) ->
                     let src = node.AttributeValue("src")
                     if src.StartsWith("images/smiles/") then
@@ -180,8 +180,8 @@ module Post =
                             | "neutral"     -> ":|"
                             | "exclamation" -> ":!:"
                             | "question"    -> ":?:"
-                            | _ -> sprintf " :%s: " icon
-                        HtmlNode.NewText(smiley)
+                            | _ -> sprintf ":%s:" icon
+                        HtmlNode.NewElement("E", [| HtmlNode.NewText(smiley) |])
                     else
                         HtmlNode.NewElement("img", [| HtmlNode.NewText(src) |])
                 // [url]href[/url]
@@ -256,7 +256,10 @@ module Post =
                 | HtmlCData (_) -> HtmlNode.NewText("")
             )
 
-        // Generate post text with BBCode from translated HTML. Ignore dummy containers.
+        // Generate post text with XML BBcode from translated HTML.
+        // Ignore dummy containers. This is the format that phpBB use internally
+        // in the database. It is needed because phpBB's reparser tool fails
+        // to convert [img] and [quote] tags from plain old BBcode.
         // Based on FSharp.Data's HtmlNode.ToString().
         let bbtext (doc : HtmlNode) =
             let rec serialize (sb : StringBuilder) html =
@@ -266,22 +269,47 @@ module Post =
                 | HtmlElement(name, attributes, elements) ->
                     // Ignore dummy.
                     if name <> "dummy" then
-                        append "["
-                        append name
+                        append "<"
+                        append (name.Replace("*", "li").ToUpper())
                         if not attributes.IsEmpty then
-                            append "="
-                            append (attributes.Head.Value())
-
-                        append "]"
+                            match name with
+                            | "quote" ->
+                                append " author=\""
+                                append (attributes.Head.Value())
+                                append "\""
+                            | "list" ->
+                                append " type=\""
+                                append (attributes.Head.Value())
+                                append "\""
+                            | tag ->
+                                append " "
+                                append tag
+                                append "=\""
+                                append (attributes.Head.Value())
+                                append "\""
+                        append ">"
+                        // Smilies don't have BB tags.
+                        if name <> "e" then
+                            append "<s>["
+                            append name
+                            if not attributes.IsEmpty then
+                                append "="
+                                append (attributes.Head.Value())
+                            append "]</s>"
 
                     for element in elements do
                         serialize sb element
                     
-                    // Ignore dummy and don't close [*] tags.
+                    // Ignore dummy.
                     if name <> "dummy"  && name <> "*" then
-                        append "[/"
-                        append name
-                        append "]"
+                        // Don't close [*] tags and smilies.
+                        if name <> "*" && name <> "e" then
+                            append "<e>[/"
+                            append name
+                            append "]</e>"
+                        append "</"
+                        append (name.ToUpper())
+                        append ">"
 
                 | HtmlText str -> append str
                 | HtmlComment _ -> ()
@@ -294,7 +322,9 @@ module Post =
         // Split post and optional signature.
         let splitSignature (body : string) =
             let post = body.Split("\n_________________\n")
-            (post.[0], if post.Length > 1 then Some post.[1] else None)
+            (
+                sprintf "<r>%s</r>" post.[0],
+                if post.Length > 1 then Some (sprintf "<r>%s</r>" post.[1]) else None)
 
         // Parse post, return body and signature.
         let Parse (doc : HtmlNode) =
