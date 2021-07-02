@@ -298,8 +298,6 @@ BEGIN;
 --------------------------------------------------
 
 -- TODO
--- * Reset sequences
--- * Post-process signature BBcode
 -- * Import avatars
 
 DO $$
@@ -344,6 +342,9 @@ END $$;")
     writeUserProfiles sql ctx
 
     sql.WriteLine(@"
+-- Set user id sequence.
+SELECT setval('phpbb_users_seq', COALESCE((SELECT MAX(user_id) FROM phpbb_users WHERE user_id < 100000000), 1));
+
 -- Set all users as members of the REGISTERED group.
 INSERT INTO phpbb_user_group
 SELECT 2 AS group_id,
@@ -393,6 +394,10 @@ TRUNCATE TABLE phpbb_forums;")
     writeForumModerators sql ctx
 
     sql.WriteLine(@"
+
+-- Set forum id sequence.
+SELECT setval('phpbb_forums_seq', COALESCE((SELECT MAX(forum_id) FROM phpbb_forums), 1));
+
 --------------------------------------------------
 -- Topics
 --------------------------------------------------
@@ -411,6 +416,9 @@ TRUNCATE TABLE phpbb_topics_watch;")
     writePollOptions sql ctx
 
     sql.WriteLine(@"
+-- Set topic id sequence.
+SELECT setval('phpbb_topics_seq', COALESCE((SELECT MAX(topic_id) FROM phpbb_topics), 1));
+
 --------------------------------------------------
 -- Posts
 --------------------------------------------------
@@ -421,6 +429,9 @@ TRUNCATE TABLE phpbb_topics_posted;")
     writePosts sql ctx
 
     sql.WriteLine(@"
+-- Set post id sequence.
+SELECT setval('phpbb_posts_seq', COALESCE((SELECT MAX(post_id) FROM phpbb_posts), 1));
+
 -- Populate topics_posted.
 INSERT INTO phpbb_topics_posted
 SELECT poster_id AS user_id,
