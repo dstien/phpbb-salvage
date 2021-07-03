@@ -311,7 +311,7 @@ module Post =
                         append (name.ToUpper())
                         append ">"
 
-                | HtmlText str -> append str
+                | HtmlText str -> append (str.Replace("<", "&lt;").Replace(">", "&gt;"))
                 | HtmlComment _ -> ()
                 | HtmlCData _ -> ()
 
