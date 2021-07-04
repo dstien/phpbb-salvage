@@ -178,7 +178,7 @@ module Post =
                             | "cool"        -> "8-)"
                             | "razz"        -> ":P"
                             | "neutral"     -> ":|"
-                            | "exclamation" -> ":!:"
+                            | "exclaim"     -> ":!:"
                             | "question"    -> ":?:"
                             | _ -> sprintf ":%s:" icon
                         HtmlNode.NewElement("E", [| HtmlNode.NewText(smiley) |])
@@ -311,13 +311,20 @@ module Post =
                         append (name.ToUpper())
                         append ">"
 
-                | HtmlText str -> append (str.Replace("<", "&lt;").Replace(">", "&gt;"))
+                | HtmlText str ->
+                    append (
+                        str
+                            .Replace("<", "&lt;") // Escape <
+                            .Replace(">", "&gt;") // Escape >
+                    )
                 | HtmlComment _ -> ()
                 | HtmlCData _ -> ()
 
             let sb = StringBuilder()
             serialize sb doc |> ignore
-            sb.ToString()
+            sb
+                .ToString()
+                .Replace("</E><E>", "</E> <E>") // Ensure there's always space between to smileys.
 
         // Split post and optional signature.
         let splitSignature (body : string) =
