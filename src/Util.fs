@@ -154,7 +154,7 @@ let ParseForumTimestamp (text : string) (sourceTime : DateTime) =
         | t when t.StartsWith("Yesterday") -> text.Replace("Yesterday", formatDate (sourceTime.AddDays(-1.0)))
         | t -> t
 
-    DateTime.Parse(adjustedText)
+    DateTime.SpecifyKind(DateTime.Parse(adjustedText), DateTimeKind.Utc)
 
 // Get the previous source by date, regardless of type.
 let PreviousSourceOfAny (sources : Map<SourceType, DateTime>) =

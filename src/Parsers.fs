@@ -74,7 +74,7 @@ module Profile =
         match (ctx.Html.CssSelect("a[href^='privmsg']").IsEmpty) with
         | true -> ctx
         | false ->
-            let joinDate = DateTime.Parse(findField ctx.Html "Joined")
+            let joinDate = Util.ParseForumTimestamp (findField ctx.Html "Joined") ctx.Timestamp
 
             Users.Set
                 {
@@ -107,7 +107,7 @@ module Memberlist =
         let user = cols.[1].CssSelect("a[href^='profile.php']").Head
 
         let id, name = Profile.IdAndNameFromProfileLink user
-        let joinDate = DateTime.Parse(cols.[5].InnerText())
+        let joinDate = Util.ParseForumTimestamp (cols.[5].InnerText()) ctx.Timestamp
 
         Users.Set
             {
@@ -340,14 +340,14 @@ module Post =
             splitSignature fulltext
 
     // Parse details about post edits from the end of the post body.
-    let ParseEditDetails (doc : HtmlNode) =
+    let ParseEditDetails (doc : HtmlNode) (ctx : Context) =
         let str = doc.CssSelect("span[class=gensmall]").Head.InnerText().Trim()
         let matches = Regex.Match(str, @"Last edited by (\w+) on (\d+ \w{3} \d{4} \d{2}:\d{2} \w{2}); edited (\d+) time")
         if matches.Success then
             Some {
                 User  = matches.Groups.[1].Value
                 Count = Int32.Parse(matches.Groups.[3].Value)
-                Last  = DateTime.Parse(matches.Groups.[2].Value)
+                Last  = Util.ParseForumTimestamp (matches.Groups.[2].Value) ctx.Timestamp
             }
         else
             None
@@ -378,8 +378,9 @@ module Post =
                         | [] -> "User"
                     CustomRank = customRank
                     JoinDate   =
-                        DateTime.Parse
+                        Util.ParseForumTimestamp
                             (Regex.Match(postDetails, @"Joined: (\d{1,2} \w{3} \d{4})\n").Groups.[1].Value)
+                            ctx.Timestamp
                     LastActive = timestamp
                     Avatar     =
                         match nodes.UserDetails.CssSelect("span[class=postdetails] > div > img") with
@@ -421,7 +422,7 @@ module Post =
                 TopicId   = topicId
                 Title     = nodes.PostBody.CssSelect("td[width='100%'] > span[class=gensmall]").Head.InnerText().Split("Post subject: ").[1]
                 Content   = content
-                Edited    = ParseEditDetails postBodyContent
+                Edited    = ParseEditDetails postBodyContent ctx
                 Sources   = Map.empty.Add(SourceType.Topic, ctx.Timestamp)
             }
 
