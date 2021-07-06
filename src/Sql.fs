@@ -403,12 +403,10 @@ SELECT setval('phpbb_forums_seq', COALESCE((SELECT MAX(forum_id) FROM phpbb_foru
 --------------------------------------------------
 
 -- TODO
--- * Poll options
--- * Poll votes
+-- * Poll votes?
 -- * User track timestamps
 
 TRUNCATE TABLE phpbb_topics;
-TRUNCATE TABLE phpbb_topics_posted;
 TRUNCATE TABLE phpbb_topics_track;
 TRUNCATE TABLE phpbb_topics_watch;")
 
@@ -440,6 +438,18 @@ SELECT poster_id AS user_id,
 FROM   phpbb_posts
 WHERE  poster_id > 1
 GROUP  BY poster_id, topic_id;
+
+-- Clear last post time for users without any posts.
+UPDATE phpbb_users dst
+SET    user_lastpost_time = 0
+FROM   (
+           SELECT u.user_id
+           FROM   phpbb_users u
+                  LEFT JOIN phpbb_posts p ON p.poster_id = u.user_id
+           GROUP  BY u.user_id, u.user_lastpost_time
+           HAVING COUNT(DISTINCT p.post_id) = 0
+       ) src
+WHERE  dst.user_id = src.user_id;
 
 --ROLLBACK;
 --COMMIT;
