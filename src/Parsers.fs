@@ -265,6 +265,16 @@ module Post =
             let rec serialize (sb : StringBuilder) html =
                 let append (str : string) = sb.Append str |> ignore
 
+                let appendAttribute (str : string) =
+                    let clean = str.Replace("\"", "'")
+                    if clean.Contains(" ") || clean.Contains("'") then
+                        append "\""
+                        append clean
+                        append "\""
+                    else
+                        append clean
+
+
                 match html with
                 | HtmlElement(name, attributes, elements) ->
                     // Ignore dummy.
@@ -294,7 +304,7 @@ module Post =
                             append name
                             if not attributes.IsEmpty then
                                 append "="
-                                append (attributes.Head.Value())
+                                appendAttribute (attributes.Head.Value())
                             append "]</s>"
 
                     for element in elements do
