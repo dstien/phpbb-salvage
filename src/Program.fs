@@ -47,7 +47,7 @@ let main argv =
     let ctx = Context.Init config
 
     if config.Error || config.Input = None then
-        printfn "Usage: %s [-v] [-q] [-s outputtype outputfile] [-l inputtype inputfile] [-f sourcetype sourceile] [datadir]" AppDomain.CurrentDomain.FriendlyName
+        printfn "Usage: %s [-v] [-q] [-s outputtype outputfile] [-l inputtype inputfile] [-f sourcetype sourcefile] [datadir]" AppDomain.CurrentDomain.FriendlyName
         printfn ""
         printfn "Supply one input type: datadir, -f type file or -l type file"
         printfn ""
