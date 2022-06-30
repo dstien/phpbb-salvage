@@ -2,7 +2,7 @@
 
 Partially recreate [phpBB](https://www.phpbb.com/) database from public HTML pages. Board, topic and post links will be retained by keeping their original ids, but private info such as e-mail addresses, passwords and internal messages will not be restored. User accounts must be manually reset by an admin for continued use.
 
-Due to the many customization options, a plethora of styles and long version history of phpBB, a lot of manual adjustments to ``phpbb-salvage`` must be performed to tailor the parsing for the forum you are targeting. The code in this repository was made to restore [forum.mm2c.com](https://forum.mm2c.com/) to phpBB 3.3.8 from a HTML scrape of its phpBB 2.0.11 with a custom style based on "subBlue", custom profile fields, ranks, bbCode and smileys.
+Due to the many customization options, a plethora of styles and long version history of phpBB, a lot of manual adjustments to ``phpbb-salvage`` must be performed to tailor the parsing for the forum you are targeting. The code in this repository was made to restore [forum.mm2c.com](https://forum.mm2c.com/) to phpBB 3.3.8 from a HTML scrape of its phpBB 2.0.11 with a custom style based on "subBlue", custom profile fields, ranks, BBCode and smileys.
 
 ## Build
 ```
@@ -68,6 +68,11 @@ phpbb-salvage -s data.sql -l Bin data.bin
 
 ### 2. Insert in clean phpBB database
 Run the generated SQL file in your favourite SQL client. ``phpbb-salvage`` is written for PostgreSQL, minor tweaks to the output are needed if using other databases.
+
+Then run phpBB's reparser tool on the server to apply the internal formatting to text with BBCode:
+```
+php bin/phpbbcli.php reparser:reparse --ansi
+```
 
 ### 3. Reset users
 The admin user must set new e-mail addresses for accounts manually in order to initiate password reset.
