@@ -186,7 +186,7 @@ let internal writeTopics (sql : IO.StreamWriter) (ctx : Context) =
                 printfn "!!! Skipping empty topic %d, forum %d: \"%s\" by %A" t.Id t.ForumId t.Title t.UserFirst
             hasPosts
         )
-        |> Seq.take 25
+        //|> Seq.take 25
         |> Seq.map (fun t' ->
             let t = t'.Value
             if ctx.Config.Verbosity > 0 && t.Replies > t.PostIds.Length then
@@ -259,7 +259,7 @@ let internal writePosts (sql : IO.StreamWriter) (ctx : Context) =
 
     let rows =
         ctx.Posts
-        |> Seq.take 25
+        //|> Seq.take 25
         |> Seq.map (fun p' ->
             let p = p'.Value
 
@@ -290,7 +290,7 @@ let internal writePosts (sql : IO.StreamWriter) (ctx : Context) =
 let Write (file : string) (ctx : Context) =
     use sql = new IO.StreamWriter(file)
 
-    sql.WriteLine(@"-- Target is phpBB 3.3.4 on PostgreSQL
+    sql.WriteLine(@"-- Target is phpBB 3.3.8 on PostgreSQL
 BEGIN;
 
 --------------------------------------------------
