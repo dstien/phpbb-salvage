@@ -1,8 +1,12 @@
 # phpbb-salvage
 
-Partially recreate [phpBB](https://www.phpbb.com/) database from public HTML pages. Board, topic and post links will be retained by keeping their original ids, but private info such as e-mail addresses, passwords and internal messages will not be restored. User accounts must be manually reset by an admin for continued use.
+<img src="https://user-images.githubusercontent.com/118539/180215606-1bbd13a6-f293-4cb5-a153-9ab1ae3d5d2d.svg" width="250" height="190" align="right">
+
+Partially recreate a [phpBB](https://www.phpbb.com/) database from public HTML pages. Board, topic and post links will be retained by keeping their original ids, but private info such as e-mail addresses, passwords and internal messages will not be restored. User accounts must be manually reset by an admin for continued use.
 
 Due to the many customization options, a plethora of styles and long version history of phpBB, a lot of manual adjustments to ``phpbb-salvage`` must be performed to tailor the parsing for the forum you are targeting. The code in this repository was made to restore [forum.mm2c.com](https://forum.mm2c.com/) to phpBB 3.3.8 from a HTML scrape of its phpBB 2.0.11 with a custom style based on "subBlue", custom profile fields, ranks, BBCode and smileys.
+
+<br clear="both"/>
 
 ## Build
 ```
